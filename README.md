@@ -1,36 +1,63 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Setube - The Ultimate YouTube Converter
 
-## Getting Started
+Setube is a modern, fast, and user-friendly web application for converting YouTube videos and playlists into high-quality audio or video formats. It's designed to be flexible, allowing for the conversion of multiple individual videos or entire playlists at once, completely free and without limitations.
 
-First, run the development server:
+## ✨ Features
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+-   **Dual Conversion Modes**: Seamlessly switch between converting individual URLs or entire YouTube playlists.
+-   **Batch Processing**: Add and convert multiple video URLs simultaneously.
+-   **Playlist Support**: Simply paste a playlist URL to fetch all its videos for conversion.
+-   **Multiple Formats**:
+    -   **Audio**: MP3, WAV, M4A
+    -   **Video**: MP4
+-   **ZIP Compression**: Downloads are automatically bundled into a `.zip` file when converting more than one file.
+-   **Dynamic UI**: A clean and responsive interface built with React and Tailwind CSS for a smooth user experience.
+-   **Live Progress Tracking**: For playlist conversions, a real-time progress bar keeps you updated.
+
+## 🛠️ Technical Stack
+
+Setube is built with a modern and robust technology stack:
+
+-   **Frontend**:
+    -   [Next.js](https://nextjs.org/) - React framework for server-side rendering and static site generation.
+    -   [React](https://reactjs.org/) - A JavaScript library for building user interfaces.
+    -   [TypeScript](https://www.typescriptlang.org/) - A typed superset of JavaScript that compiles to plain JavaScript.
+    -   [Tailwind CSS](https://tailwindcss.com/) - A utility-first CSS framework for rapid UI development.
+    -   [Lucide React](https://lucide.dev/) - Beautiful and consistent icons.
+-   **Backend API**:
+    -   The conversion logic is handled by a separate backend server. You can find the repository here: **[api-setube](https://github.com/GarcesSebastian/api-setube)**
+
+## ⚙️ Getting Started
+
+To get a local copy up and running, follow these simple steps.
+
+### Prerequisites
+
+-   Node.js (v20 or higher recommended)
+-   You also need to have the [api-setube](https://github.com/GarcesSebastian/api-setube) server running locally.
+
+### Installation
+
+1.  **Clone the frontend repository:**
+    ```bash
+    git clone https://github.com/GarcesSebastian/convert-yt.git
+    cd convert-yt
+    ```
+
+2.  **Install NPM packages:**
+    ```bash
+    npm install
+    ```
+
+3.  **Set up environment variables:**
+    Create a `.env.local` file in the root of the project and add the URL of your backend API:
+    ```
+    NEXT_PUBLIC_API_URL=http://localhost:4000
+    ```
+
+4.  **Run the development server:**
+    ```bash
+    npm run dev
+    ```
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
-
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
-
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.

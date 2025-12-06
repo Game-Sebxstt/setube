@@ -31,14 +31,6 @@ const ALL_FORMATS: Record<Format, FormatDetails> = {
     size: 100,
     color: "from-blue-500 to-cyan-500",
   },
-  m4a: {
-    label: "M4A",
-    icon: <Radio className="w-4 h-4 sm:w-5 sm:h-5 text-white" />,
-    compatibility: 90,
-    quality: 90,
-    size: 50,
-    color: "from-purple-500 to-pink-500",
-  },
   mp4: {
     label: "MP4",
     icon: <Video className="w-4 h-4 sm:w-5 sm:h-5 text-white" />,
@@ -76,7 +68,7 @@ export function FormatSelector({ value, onChange, options }: FormatSelectorProps
 
   return (
     <div className="space-y-3 sm:space-y-4">
-      <div className={`grid grid-cols-${availableFormats.length === 1 ? 1 : 3} gap-2 sm:gap-3`}>
+      <div className={`grid grid-cols-${availableFormats.length === 1 ? 1 : 2} gap-2 sm:gap-3`}>
         {availableFormats.map((format) => (
           <button
             key={format.value}

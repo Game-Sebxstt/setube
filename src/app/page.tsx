@@ -3,6 +3,7 @@
 import { v4 as uuidv4 } from "uuid"
 import Image from "next/image"
 import { useState, useEffect, useRef } from "react"
+import type { ClipboardEvent } from "react"
 import { Card, CardContent } from "@/components/Card"
 import { Button } from "@/components/Button"
 import { Input } from "@/components/Input"
@@ -71,7 +72,7 @@ interface ConvertedFile {
   timestamp: number
 }
 
-type Format = "mp3" | "wav" | "m4a" | "mp4"
+type Format = "mp3" | "wav" | "mp4"
 type ConversionMode = "urls" | "playlist"
 type ConversionType = "audio" | "video"
 
@@ -392,6 +393,100 @@ export default function YouTubeConverter() {
     }
   }
   
+  const handlePasteUrls = (event: ClipboardEvent<HTMLInputElement>, targetId: string) => {
+    const paste = event.clipboardData.getData("text")
+    if (!paste) return
+
+    const lines = paste
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0)
+
+    if (lines.length <= 1) {
+      return
+    }
+
+    event.preventDefault()
+
+    const [firstUrl, ...restUrls] = lines
+
+    const pastedEntries: { id: string; url: string }[] = []
+    pastedEntries.push({ id: targetId, url: firstUrl })
+
+    restUrls.forEach((url) => {
+      pastedEntries.push({ id: uuidv4(), url })
+    })
+
+    setUrls((prevUrls) => {
+      const targetIndex = prevUrls.findIndex((url) => url.id === targetId)
+
+      if (targetIndex === -1) {
+        const newUrlObjects = pastedEntries.map((entry) => ({
+          id: entry.id,
+          url: entry.url,
+          isLoading: false,
+          isValid: false,
+        }))
+
+        const result = [...prevUrls, ...newUrlObjects]
+        saveUrlsToStorage(result)
+        return result
+      }
+
+      const result: URL[] = []
+
+      prevUrls.forEach((url, index) => {
+        if (index < targetIndex) {
+          result.push(url)
+          return
+        }
+
+        if (index === targetIndex) {
+          const firstEntry = pastedEntries[0]
+          result.push({
+            ...url,
+            url: firstEntry.url,
+            isLoading: false,
+            isValid: false,
+            info: undefined,
+          })
+
+          pastedEntries.slice(1).forEach((entry) => {
+            result.push({
+              id: entry.id,
+              url: entry.url,
+              isLoading: false,
+              isValid: false,
+            })
+          })
+
+          return
+        }
+
+        if (index > targetIndex) {
+          result.push(url)
+        }
+      })
+
+      saveUrlsToStorage(result)
+      return result
+    })
+
+    pastedEntries.forEach((entry) => {
+      if (!isValidUrl(entry.url)) return
+
+      setUrls((prevUrls) =>
+        prevUrls.map((prevUrl) =>
+          prevUrl.id === entry.id
+            ? { ...prevUrl, isLoading: true, isValid: false, info: undefined }
+            : prevUrl
+        )
+      )
+
+      fetchVideoInfo(entry.id, entry.url)
+    })
+  }
+  
   const isValidUrl = (url: string): boolean => {
     const youtubeRegex = /^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.?be|music\.youtube\.com)\/.+/
     return youtubeRegex.test(url.trim())
@@ -609,7 +704,7 @@ export default function YouTubeConverter() {
                 onChange={(newFormat) => setFormat(newFormat as Format)}
                 options={
                   conversionType === "audio"
-                    ? ["mp3", "wav", "m4a"]
+                    ? ["mp3", "wav"]
                     : ["mp4"]
                 }
               />
@@ -665,6 +760,7 @@ export default function YouTubeConverter() {
                                 placeholder="https://www.youtube.com/watch?v=..."
                                 value={url.url}
                                 onChange={(e) => handleUrlChange(url.id, e.target.value)}
+                                onPaste={(e) => handlePasteUrls(e, url.id)}
                                 className="pr-8 sm:pr-10"
                               />
                               {url.url.trim() && !url.isLoading && url.isValid && url.info && (
