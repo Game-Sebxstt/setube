@@ -2,7 +2,7 @@
 
 import { v4 as uuidv4 } from "uuid"
 import Image from "next/image"
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, useCallback } from "react"
 import type { ClipboardEvent } from "react"
 import { Card, CardContent } from "@/components/Card"
 import { Button } from "@/components/Button"
@@ -18,11 +18,7 @@ import {
   Youtube,
   Loader2,
   CheckCircle,
-  Info,
   Sparkles,
-  Search,
-  Music,
-  Eye,
 } from "lucide-react"
 
 interface VideoThumbnail {
@@ -77,48 +73,11 @@ type ConversionMode = "urls" | "playlist"
 type ConversionType = "audio" | "video"
 
 export default function YouTubeConverter() {
-  const handleClearUrls = () => {
-    setUrls((prevUrls) => prevUrls.length > 1 ? [prevUrls[0]] : prevUrls)
-    saveUrlsToStorage([...urls])
-  }
+  // 1. API Config
+  const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
 
-  const [urls, setUrls] = useState<URL[]>([]);
-
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem("setube_urls");
-      if (saved) {
-        const parsed: URL[] = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-
-          const urlsWithoutInfo = parsed.map(url => ({
-            id: url.id,
-            url: url.url,
-            isValid: false,
-            isLoading: isValidUrl(url.url)
-          }));
-          
-          setUrls(urlsWithoutInfo);
-          
-          urlsWithoutInfo.forEach((url, index) => {
-            if (isValidUrl(url.url)) {
-              setTimeout(() => {
-                fetchVideoInfo(url.id, url.url);
-              }, index * 300);
-            }
-          });
-        }
-      } else if (urls.length === 0) {
-
-        setUrls([{ id: uuidv4(), url: "", isLoading: false, isValid: false }]);
-      }
-    } catch {
-
-      if (urls.length === 0) {
-        setUrls([{ id: uuidv4(), url: "", isLoading: false, isValid: false }]);
-      }
-    }
-  }, []);
+  // 2. State
+  const [urls, setUrls] = useState<URL[]>([])
   const [playlistUrl, setPlaylistUrl] = useState("")
   const [playlistInfo, setPlaylistInfo] = useState<PlaylistInfo | null>(null)
   const [format, setFormat] = useState<Format>("mp3")
@@ -126,103 +85,129 @@ export default function YouTubeConverter() {
   const [conversionType, setConversionType] = useState<ConversionType>("audio")
   const [isConverting, setIsConverting] = useState(false)
   const [isLoadingPlaylist, setIsLoadingPlaylist] = useState(false)
-  const [convertedCount, setConvertedCount] = useState(0)
   const [error, setError] = useState<string | null>(null)
-
   const [showProgress, setShowProgress] = useState(false)
   const [convertedFiles, setConvertedFiles] = useState<ConvertedFile[]>([])
   const [totalFilesToConvert, setTotalFilesToConvert] = useState(0)
   const [isConversionCompleted, setIsConversionCompleted] = useState(false)
+  const [, setConvertedCount] = useState(0)
 
+  // 2. Refs
   const eventSourceRef = useRef<EventSource | null>(null)
+  const pendingBatchRef = useRef<{ id: string, url: string }[]>([]);
+  const batchTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const urlTimersRef = useRef<{[key: string]: NodeJS.Timeout}>({});
 
-  useEffect(() => {
-    if (mode === "playlist" && playlistUrl.trim()) {
-      const timer = setTimeout(() => {
-        fetchPlaylistInfo()
-      }, 1000)
+  // 3. Callbacks (Utils)
+  const isValidUrl = useCallback((url: string): boolean => {
+    const youtubeRegex = /^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.?be|music\.youtube\.com)\/.+/
+    return youtubeRegex.test(url.trim())
+  }, []);
 
-      return () => clearTimeout(timer)
-    } else {
-      setPlaylistInfo(null)
-    }
-  }, [playlistUrl, mode])
+  const saveUrlsToStorage = useCallback((urlsToSave: URL[]) => {
+    try {
+      const urlsToStore = urlsToSave.map(url => ({
+        id: url.id,
+        url: url.url
+      }));
+      localStorage.setItem("setube_urls", JSON.stringify(urlsToStore));
+    } catch {}
+  }, []);
 
-  useEffect(() => {
-    return () => {
-      if (eventSourceRef.current) {
-        eventSourceRef.current.close()
-        eventSourceRef.current = null
-      }
-    }
-  }, [])
-
-  const showError = (message: string) => {
-    setError(message)
-    setIsConverting(false)
-    setIsLoadingPlaylist(false)
-    closeEventSource()
-  }
-
-  const closeEventSource = () => {
+  const closeEventSource = useCallback(() => {
     if (eventSourceRef.current) {
       eventSourceRef.current.close()
       eventSourceRef.current = null
     }
-  }
+  }, [])
 
-  const setupEventSource = () => {
+  const showError = useCallback((message: string) => {
+    setError(message)
+    setIsConverting(false)
+    setIsLoadingPlaylist(false)
+    closeEventSource()
+  }, [closeEventSource])
+
+  // 4. Callbacks (Logic)
+  const fetchVideoInfoBatch = useCallback(async (items: { id: string, url: string }[]) => {
+    if (items.length === 0) return;
+    
+    console.log(`[Batch] Enviando batch de ${items.length} videos a ${API_URL}`);
+
+    setUrls(prev => prev.map(u => {
+      const item = items.find(i => i.id === u.id);
+      return item ? { ...u, isLoading: true, isValid: false, info: undefined } : u;
+    }));
+
     try {
-      closeEventSource()
+      const response = await fetch(`${API_URL}/video/info`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ urls: items.map(i => i.url) })
+      });
 
-      const eventSource = new EventSource(`${process.env.NEXT_PUBLIC_API_URL}/events`)
-      eventSourceRef.current = eventSource
+      if (!response.ok) throw new Error(`Error del servidor: ${response.status}`);
 
-      eventSource.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data)
-          console.log("SSE Data:", data)
-
-          if (data.type === "success" && data.filename) {
-            setConvertedFiles((prev) => [
-              ...prev,
-              {
-                filename: data.filename,
-                timestamp: Date.now(),
-              },
-            ])
+      const data = await response.json();
+      console.log("[Batch] Datos recibidos:", data);
+      
+      setUrls(prev => {
+        const updated = prev.map(u => {
+          const itemIdx = items.findIndex(i => i.id === u.id);
+          if (itemIdx !== -1 && data.urls && data.urls[itemIdx]) {
+            return { ...u, info: data.urls[itemIdx], isLoading: false, isValid: true };
           }
-        } catch (parseError) {
-          console.error("Error parsing SSE data:", parseError)
-        }
-      }
-
-      eventSource.onerror = (error) => {
-        console.error("Error en EventSource:", error)
-        setTimeout(() => {
-          if (eventSource.readyState === EventSource.CLOSED) {
-            showError("Se perdió la conexión con el servidor durante la conversión")
+          if (itemIdx !== -1) {
+            return { ...u, isLoading: false, isValid: false };
           }
-        }, 3000)
-      }
-
-      eventSource.onopen = () => {
-        console.log("EventSource connection opened")
-      }
+          return u;
+        });
+        
+        // Save to storage using the updated list
+        const urlsToStore = updated.map(url => ({
+          id: url.id,
+          url: url.url
+        }));
+        localStorage.setItem("setube_urls", JSON.stringify(urlsToStore));
+        
+        return updated;
+      });
     } catch (error) {
-      console.error("Error setting up EventSource:", error)
-      showError("No se pudo establecer conexión en tiempo real con el servidor")
+      console.error("[Batch] Error fetching batch info:", error);
+      setUrls(prev => prev.map(u => {
+        const item = items.find(i => i.id === u.id);
+        return item ? { ...u, isLoading: false, isValid: false } : u;
+      }));
+      showError("Error al obtener información de los videos");
     }
-  }
+  }, [showError]);
 
-  const fetchPlaylistInfo = async () => {
+  const queueUrlForBatch = useCallback((id: string, url: string) => {
+    pendingBatchRef.current = pendingBatchRef.current.filter(i => i.id !== id);
+    pendingBatchRef.current.push({ id, url });
+
+    if (batchTimerRef.current) clearTimeout(batchTimerRef.current);
+    
+    batchTimerRef.current = setTimeout(() => {
+      const batch = [...pendingBatchRef.current];
+      pendingBatchRef.current = [];
+      fetchVideoInfoBatch(batch);
+    }, 500);
+  }, [fetchVideoInfoBatch]);
+
+  const fetchVideoInfo = useCallback((id: string, url: string) => {
+    if (!url.trim() || !isValidUrl(url)) return;
+    queueUrlForBatch(id, url);
+  }, [isValidUrl, queueUrlForBatch]);
+
+  const fetchPlaylistInfo = useCallback(async () => {
     if (!playlistUrl.trim()) return
 
     setIsLoadingPlaylist(true)
     setPlaylistInfo(null)
 
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/audio/playlist`, {
+      const response = await fetch(`${API_URL}/audio/playlist`, {
         method: "POST",
         body: JSON.stringify({ url: playlistUrl }),
         headers: {
@@ -242,6 +227,99 @@ export default function YouTubeConverter() {
     } finally {
       setIsLoadingPlaylist(false)
     }
+  }, [playlistUrl, showError]);
+
+  const setupEventSource = useCallback(() => {
+    try {
+      closeEventSource()
+
+      const eventSource = new EventSource(`${API_URL}/events`)
+      eventSourceRef.current = eventSource
+
+      eventSource.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data)
+          if (data.type === "success" && data.filename) {
+            setConvertedFiles((prev) => [
+              ...prev,
+              {
+                filename: data.filename,
+                timestamp: Date.now(),
+              },
+            ])
+          }
+        } catch (parseError) {
+          console.error("Error parsing SSE data:", parseError)
+        }
+      }
+
+      eventSource.onerror = () => {
+        setTimeout(() => {
+          if (eventSource.readyState === EventSource.CLOSED) {
+            showError("Se perdió la conexión con el servidor durante la conversión")
+          }
+        }, 3000)
+      }
+    } catch (error) {
+      console.error("Error setting up EventSource:", error)
+      showError("No se pudo establecer conexión en tiempo real con el servidor")
+    }
+  }, [closeEventSource, showError])
+
+  // 5. Effects
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("setube_urls");
+      if (saved) {
+        const parsed: URL[] = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const urlsWithoutInfo = parsed.map(url => ({
+            id: url.id,
+            url: url.url,
+            isValid: false,
+            isLoading: isValidUrl(url.url)
+          }));
+          setUrls(urlsWithoutInfo);
+          urlsWithoutInfo.forEach((url, index) => {
+            if (isValidUrl(url.url)) {
+              setTimeout(() => {
+                fetchVideoInfo(url.id, url.url);
+              }, index * 300);
+            }
+          });
+        }
+      } else {
+        setUrls([{ id: uuidv4(), url: "", isLoading: false, isValid: false }]);
+      }
+    } catch {
+      setUrls([{ id: uuidv4(), url: "", isLoading: false, isValid: false }]);
+    }
+  }, [fetchVideoInfo, isValidUrl]);
+
+  useEffect(() => {
+    if (mode === "playlist" && playlistUrl.trim()) {
+      const timer = setTimeout(() => {
+        fetchPlaylistInfo()
+      }, 1000)
+      return () => clearTimeout(timer)
+    } else {
+      setPlaylistInfo(null)
+    }
+  }, [playlistUrl, mode, fetchPlaylistInfo])
+
+  useEffect(() => {
+    return () => {
+      closeEventSource()
+    }
+  }, [closeEventSource])
+
+  // 6. Handlers
+  const handleClearUrls = () => {
+    setUrls((prevUrls) => {
+        const newUrls = prevUrls.length > 1 ? [prevUrls[0]] : prevUrls
+        saveUrlsToStorage(newUrls)
+        return newUrls
+    })
   }
 
   const handleConvert = async () => {
@@ -271,7 +349,7 @@ export default function YouTubeConverter() {
       }
 
       const endpoint = conversionType === "audio" ? "audio" : "video"
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/${endpoint}/convert`, {
+      const response = await fetch(`${API_URL}/${endpoint}/convert`, {
         method: "POST",
         body: JSON.stringify({ urls: urlsToConvert, format }),
         headers: {
@@ -328,54 +406,45 @@ export default function YouTubeConverter() {
 
   const addNewUrl = () => {
     const newUrl = { id: uuidv4(), url: "" }
-    setUrls((prevUrls) => [...prevUrls, newUrl])
-    saveUrlsToStorage([...urls, newUrl])
+    setUrls((prevUrls) => {
+        const updated = [...prevUrls, newUrl]
+        saveUrlsToStorage(updated)
+        return updated
+    })
   }
 
   const removeUrl = (id: string) => {
-    const newUrls = urls.filter((url) => url.id !== id)
-    setUrls(newUrls)
-    saveUrlsToStorage(newUrls)
+    setUrls((prev) => {
+        const filtered = prev.filter((url) => url.id !== id)
+        saveUrlsToStorage(filtered)
+        return filtered
+    })
   }
 
-
-  const urlTimersRef = useRef<{[key: string]: NodeJS.Timeout}>({});
-  
-
-  const DEBOUNCE_TIME = 1500;
-  
   const handleUrlChange = (id: string, value: string) => {
-
     if (urlTimersRef.current[id]) {
       clearTimeout(urlTimersRef.current[id]);
     }
     
     const hasValidFormat = isValidUrl(value);
     
-
-    setUrls((prevUrls) =>
-      prevUrls.map((prevUrl) => {
+    setUrls((prevUrls) => {
+      const updated = prevUrls.map((prevUrl) => {
         if (prevUrl.id === id) {
-
           if (!value.trim() || !hasValidFormat) {
             return { ...prevUrl, url: value, isLoading: false, isValid: false, info: undefined };
           } else {
-
             return { ...prevUrl, url: value };
           }
         }
         return prevUrl;
       })
-    );
+      saveUrlsToStorage(updated)
+      return updated
+    });
     
-
-    saveUrlsToStorage();
-    
-
     if (hasValidFormat) {
-
       setTimeout(() => {
-
         if (urlTimersRef.current[id]) {
           setUrls((prevUrls) =>
             prevUrls.map((prevUrl) =>
@@ -385,14 +454,13 @@ export default function YouTubeConverter() {
         }
       }, 300);
 
-
       urlTimersRef.current[id] = setTimeout(() => {
         fetchVideoInfo(id, value);
         delete urlTimersRef.current[id];
-      }, DEBOUNCE_TIME);
+      }, 1500);
     }
   }
-  
+
   const handlePasteUrls = (event: ClipboardEvent<HTMLInputElement>, targetId: string) => {
     const paste = event.clipboardData.getData("text")
     if (!paste) return
@@ -402,226 +470,74 @@ export default function YouTubeConverter() {
       .map((line) => line.trim())
       .filter((line) => line.length > 0)
 
-    if (lines.length <= 1) {
-      return
-    }
+    if (lines.length <= 1) return
 
     event.preventDefault()
-
     const [firstUrl, ...restUrls] = lines
-
     const pastedEntries: { id: string; url: string }[] = []
     pastedEntries.push({ id: targetId, url: firstUrl })
-
     restUrls.forEach((url) => {
       pastedEntries.push({ id: uuidv4(), url })
     })
 
+    const finalEntries = [...pastedEntries];
     setUrls((prevUrls) => {
       const targetIndex = prevUrls.findIndex((url) => url.id === targetId)
+      let result: URL[] = []
 
       if (targetIndex === -1) {
-        const newUrlObjects = pastedEntries.map((entry) => ({
+        const newUrlObjects = finalEntries.map((entry) => ({
           id: entry.id,
           url: entry.url,
-          isLoading: false,
+          isLoading: isValidUrl(entry.url),
           isValid: false,
         }))
-
-        const result = [...prevUrls, ...newUrlObjects]
-        saveUrlsToStorage(result)
-        return result
-      }
-
-      const result: URL[] = []
-
-      prevUrls.forEach((url, index) => {
-        if (index < targetIndex) {
-          result.push(url)
-          return
-        }
-
-        if (index === targetIndex) {
-          const firstEntry = pastedEntries[0]
-          result.push({
-            ...url,
-            url: firstEntry.url,
-            isLoading: false,
-            isValid: false,
-            info: undefined,
-          })
-
-          pastedEntries.slice(1).forEach((entry) => {
-            result.push({
-              id: entry.id,
-              url: entry.url,
-              isLoading: false,
-              isValid: false,
+        result = [...prevUrls, ...newUrlObjects]
+      } else {
+        prevUrls.forEach((url, index) => {
+          if (index < targetIndex) {
+            result.push(url)
+          } else if (index === targetIndex) {
+            result.push({ ...url, url: finalEntries[0].url, isLoading: isValidUrl(finalEntries[0].url), isValid: false, info: undefined })
+            finalEntries.slice(1).forEach((entry) => {
+              result.push({ id: entry.id, url: entry.url, isLoading: isValidUrl(entry.url), isValid: false })
             })
-          })
-
-          return
-        }
-
-        if (index > targetIndex) {
-          result.push(url)
-        }
-      })
-
+          } else {
+            result.push(url)
+          }
+        })
+      }
       saveUrlsToStorage(result)
       return result
     })
 
-    pastedEntries.forEach((entry) => {
-      if (!isValidUrl(entry.url)) return
-
-      setUrls((prevUrls) =>
-        prevUrls.map((prevUrl) =>
-          prevUrl.id === entry.id
-            ? { ...prevUrl, isLoading: true, isValid: false, info: undefined }
-            : prevUrl
-        )
-      )
-
-      fetchVideoInfo(entry.id, entry.url)
+    finalEntries.forEach((entry) => {
+      if (isValidUrl(entry.url)) {
+        console.log(`[Paste] Encolando ${entry.url}`);
+        fetchVideoInfo(entry.id, entry.url)
+      }
     })
-  }
-  
-  const isValidUrl = (url: string): boolean => {
-    const youtubeRegex = /^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.?be|music\.youtube\.com)\/.+/
-    return youtubeRegex.test(url.trim())
-  }
-
-  const fetchVideoInfo = async (id: string, url: string) => {
-    if (!url.trim() || !isValidUrl(url)) return
-    
-    try {
-
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/video/info`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ urls: [url] })
-      })
-
-
-      if (!response.ok) {
-
-        let errorMessage = `Error del servidor: ${response.status}`;
-        try {
-          const errorData = await response.json();
-
-          if (errorData && errorData.error) {
-            errorMessage = errorData.error;
-          }
-        } catch {
-  
-          errorMessage = "Error al obtener info del video";
-        }
-        
-        console.error(`Error al obtener info del video (${url}):`, errorMessage);
-        
-
-        setUrls((prevUrls) =>
-          prevUrls.map((prevUrl) =>
-            prevUrl.id === id ? { 
-              ...prevUrl, 
-              isLoading: false, 
-              info: undefined,
-              isValid: false
-            } : prevUrl
-          )
-        );
-        
-
-        setError(`No se pudo obtener información del video. ${errorMessage}`)
-        
-
-        return;
-      }
-
-
-      const data = await response.json();
-      console.log("Video info data:", data);
-      
-
-      if (data.urls && data.urls.length > 0) {
-        setUrls((prevUrls) =>
-          prevUrls.map((prevUrl) =>
-            prevUrl.id === id
-              ? { ...prevUrl, info: data.urls[0], isLoading: false, isValid: true }
-              : prevUrl
-          )
-        );
-
-        saveUrlsToStorage();
-        console.log("Updated URL with info:", id, data.urls[0].title);
-      } else {
-        console.log("No video info returned for URL despite OK response:", url);
-        setUrls((prevUrls) =>
-          prevUrls.map((prevUrl) =>
-            prevUrl.id === id ? { 
-              ...prevUrl, 
-              isLoading: false, 
-              info: undefined,
-              isValid: false
-            } : prevUrl
-          )
-        );
-
-        setError(`No se encontró información para el video. Verifica que la URL sea correcta.`);
-      }
-    } catch (error) {
-      console.error("Error fetching video info:", error);
-      setUrls((prevUrls) =>
-        prevUrls.map((prevUrl) =>
-          prevUrl.id === id ? { 
-            ...prevUrl, 
-            isLoading: false, 
-            info: undefined,
-            isValid: false
-          } : prevUrl
-        )
-      );
-
-      setError("Hubo un problema al obtener la información del video. Inténtalo de nuevo más tarde.");
-    }
-  }
-
-  const saveUrlsToStorage = (urlsToSave = urls) => {
-    try {
-
-      const urlsToStore = urlsToSave.map(url => ({
-        id: url.id,
-        url: url.url
-      }));
-      localStorage.setItem("setube_urls", JSON.stringify(urlsToStore));
-    } catch {}
   }
 
   const handleCloseProgress = () => {
     setShowProgress(false)
-    if (!isConverting) {
-      closeEventSource()
-    }
+    if (!isConverting) closeEventSource()
   }
   
   const handleCancelConversion = () => {
-    if (window.confirm('¿Estás seguro que deseas cancelar la conversión de la playlist?')) {
+    if (window.confirm('¿Estás seguro que deseas cancelar la conversión?')) {
       setShowProgress(false)
       setIsConverting(false)
       closeEventSource()
       setConvertedFiles([])
       setConvertedCount(0)
-      setError('La conversión de la playlist ha sido cancelada')
+      setError('La conversión ha sido cancelada')
     }
   }
 
-
-  const validUrls = urls.filter((url) => isValidUrl(url.url) && url.isValid && url.info).length
-  const isPlaylistValid = playlistUrl.trim().length > 0
-  const canConvert = mode === "urls" ? validUrls > 0 : playlistInfo && playlistInfo.urls.length > 0
+  // 7. Render helpers
+  const validUrlsCount = urls.filter((url) => isValidUrl(url.url) && url.isValid && url.info).length
+  const canConvert = mode === "urls" ? validUrlsCount > 0 : playlistInfo && playlistInfo.urls.length > 0
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-gray-50 to-slate-100">
@@ -798,15 +714,8 @@ export default function YouTubeConverter() {
                                   </div>
                                 </div>
                                 <div className="flex-1 space-y-1 overflow-hidden">
-                                  <h4 className="font-medium text-sm sm:text-base text-slate-900 truncate">{url.info.title}</h4>
-                                  <p className="text-xs sm:text-sm text-slate-700 line-clamp-2">{url.info.description}</p>
-                                  <div className="flex flex-wrap gap-1 pt-1">
-                                    {url.info.qualities.map((quality, i) => (
-                                      <span key={i} className="text-xs bg-slate-200 text-slate-700 px-1.5 py-0.5 rounded">
-                                        {quality}
-                                      </span>
-                                    ))}
-                                  </div>
+                                  <h3 className="font-semibold text-slate-800 text-sm line-clamp-2">{url.info.title}</h3>
+                                  <p className="text-slate-500 text-xs line-clamp-2 mt-1">{url.info.description}</p>
                                 </div>
                               </div>
                             </div>
@@ -814,179 +723,64 @@ export default function YouTubeConverter() {
                         </div>
                       ))}
                     </div>
-
-                    {validUrls > 0 && (
-                      <div className="flex items-center gap-2 text-xs sm:text-sm text-emerald-600 bg-emerald-50 px-3 py-2 rounded-lg">
-                        <CheckCircle className="w-3 h-3 sm:w-4 sm:h-4" />
-                        {validUrls} archivo{validUrls > 1 ? "s" : ""} listo{validUrls > 1 ? "s" : ""}
-                      </div>
-                    )}
                   </div>
                 ) : (
-                  <div className="animate-in fade-in slide-in-from-left duration-500 space-y-3 sm:space-y-4">
-                    <div className="relative">
-                      <Input
-                        type="url"
-                        placeholder="https://www.youtube.com/playlist?list=..."
-                        value={playlistUrl}
-                        onChange={(e) => setPlaylistUrl(e.target.value)}
-                        className="pr-8 sm:pr-10"
-                      />
-                      {isLoadingPlaylist ? (
-                        <Loader2 className="absolute right-2 sm:right-3 top-1/2 transform -translate-y-1/2 w-3 h-3 sm:w-4 sm:h-4 animate-spin text-slate-500" />
-                      ) : (
-                        isPlaylistValid && (
-                          <Search className="absolute right-2 sm:right-3 top-1/2 transform -translate-y-1/2 w-3 h-3 sm:w-4 sm:h-4 text-slate-500" />
-                        )
-                      )}
-                    </div>
-
+                  <div className="animate-in fade-in slide-in-from-left duration-500 space-y-4">
+                    <Input
+                      type="url"
+                      placeholder="https://www.youtube.com/playlist?list=..."
+                      value={playlistUrl}
+                      onChange={(e) => setPlaylistUrl(e.target.value)}
+                    />
+                    {isLoadingPlaylist && (
+                      <div className="flex items-center justify-center py-4">
+                        <Loader2 className="w-6 h-6 animate-spin text-slate-400" />
+                        <span className="ml-2 text-slate-500">Obteniendo información de la playlist...</span>
+                      </div>
+                    )}
                     {playlistInfo && (
-                      <div className="animate-in fade-in slide-in-from-bottom duration-500">
-                        <div className="bg-slate-50 rounded-lg p-2 sm:p-3 border border-slate-200 shadow-sm">
-                          <div className="flex flex-col md:flex-row gap-3">
-                            <div className="relative w-full md:w-1/3 aspect-video rounded-md overflow-hidden">
-                              <Image 
-                                src={playlistInfo.info.thumbnail.url} 
-                                alt={playlistInfo.info.title}
-                                fill
-                                className="object-cover"
-                              />
-                              <div className="absolute bottom-0 right-0 bg-black bg-opacity-70 text-white text-xs px-1 py-0.5 rounded-tl">
-                                {playlistInfo.total} videos
-                              </div>
-                            </div>
-                            <div className="flex-1 space-y-1 overflow-hidden">
-                              <div className="flex items-center gap-2">
-                                <h4 className="font-medium text-sm sm:text-base text-slate-900 truncate flex-1">{playlistInfo.info.title}</h4>
-                                <span className="text-xs bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded whitespace-nowrap">
-                                  Playlist
-                                </span>
-                              </div>
-                              <p className="text-xs sm:text-sm text-slate-700 line-clamp-2">{playlistInfo.info.description}</p>
-                              <div className="flex flex-wrap gap-3 pt-2">
-                                <div className="flex items-center gap-1">
-                                  <Music className="w-3 h-3 sm:w-4 sm:h-4 text-slate-500" />
-                                  <span className="text-xs sm:text-sm text-slate-700">
-                                    {playlistInfo.total} videos
-                                  </span>
-                                </div>
-                                <div className="flex items-center gap-1">
-                                  <Eye className="w-3 h-3 sm:w-4 sm:h-4 text-slate-500" />
-                                  <span className="text-xs sm:text-sm text-slate-700">
-                                    {new Intl.NumberFormat('es-ES').format(playlistInfo.info.views)} vistas
-                                  </span>
-                                </div>
-                              </div>
-                            </div>
+                      <div className="bg-slate-50 rounded-xl p-4 border border-slate-200 animate-in zoom-in-95 duration-300">
+                        <div className="flex gap-4">
+                          <div className="relative w-32 aspect-video rounded-lg overflow-hidden flex-shrink-0">
+                            <Image 
+                              src={playlistInfo.info.thumbnail.url} 
+                              alt={playlistInfo.info.title}
+                              fill
+                              className="object-cover"
+                            />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <h3 className="font-bold text-slate-800 line-clamp-1">{playlistInfo.info.title}</h3>
+                            <p className="text-slate-500 text-sm mt-1">{playlistInfo.total} videos encontrados</p>
                           </div>
                         </div>
                       </div>
                     )}
-
-                    {isLoadingPlaylist && (
-                      <div className="flex items-center gap-2 text-xs sm:text-sm text-slate-600 bg-slate-50 px-3 py-3 sm:py-4 rounded-lg border border-slate-200 shadow-sm animate-pulse">
-                        <Loader2 className="w-3 h-3 sm:w-4 sm:h-4 animate-spin" />
-                        <span>Obteniendo información de la playlist...</span>
-                      </div>
-                    )}
                   </div>
                 )}
               </div>
             </div>
 
-            <div className="pt-2">
-              <Button
-                onClick={handleConvert}
-                disabled={isConverting || !canConvert || isLoadingPlaylist}
-                className="w-full"
-                size="lg"
-              >
-                {isConverting ? (
-                  <>
-                    <Loader2 className="w-4 h-4 sm:w-5 sm:h-5 mr-2 animate-spin" />
-                    <span className="text-xs sm:text-sm">
-                      {mode === "playlist" ? "Convirtiendo playlist..." : "Convirtiendo..."}
-                    </span>
-                  </>
-                ) : (
-                  <>
-                    <Download className="w-4 h-4 sm:w-5 sm:h-5 mr-2" />
-                    <span className="text-xs sm:text-sm">
-                      {mode === "playlist"
-                        ? `Convertir Playlist (${playlistInfo?.total || 0})`
-                        : "Convertir y Descargar"}
-                    </span>
-                  </>
-                )}
-              </Button>
-
-              {convertedCount > 0 && !isConverting && !showProgress && (
-                <div className="flex items-center justify-center gap-2 text-emerald-600 mt-3 animate-in fade-in duration-500">
-                  <CheckCircle className="w-4 h-4 sm:w-5 sm:h-5" />
-                  <span className="text-xs sm:text-sm font-medium">
-                    ¡{convertedCount} archivo{convertedCount > 1 ? "s" : ""} convertido{convertedCount > 1 ? "s" : ""}!
-                  </span>
-                </div>
+            <Button
+              onClick={handleConvert}
+              className="w-full py-4 sm:py-6 text-base sm:text-lg font-bold shadow-lg"
+              disabled={!canConvert || isConverting}
+              variant="primary"
+            >
+              {isConverting ? (
+                <>
+                  <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                  Convirtiendo...
+                </>
+              ) : (
+                <>
+                  <Download className="mr-2 h-5 w-5" />
+                  {mode === "playlist" ? "Convertir Playlist" : "Convertir Videos"}
+                </>
               )}
-            </div>
+            </Button>
           </CardContent>
         </Card>
-
-        <Card className="border-0 shadow-lg animate-in fade-in slide-in-from-bottom duration-1000 delay-400">
-          <CardContent className="space-y-3 sm:space-y-4">
-            <div className="flex items-center gap-2 mb-3 sm:mb-4">
-              <Info className="w-4 h-4 sm:w-5 sm:h-5 text-slate-600" />
-              <span className="font-semibold text-slate-700 text-sm sm:text-base">Cómo funciona</span>
-            </div>
-
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-4">
-              <div className="flex flex-col sm:flex-row items-start gap-2 sm:gap-3 p-2 sm:p-3 rounded-xl bg-gradient-to-br from-blue-50 to-indigo-50">
-                <div className="w-5 h-5 sm:w-6 sm:h-6 bg-gradient-to-r from-blue-500 to-indigo-500 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
-                  1
-                </div>
-                <div>
-                  <p className="text-xs sm:text-sm font-medium text-slate-700">Elige modo</p>
-                  <p className="text-xs text-slate-600">URLs o playlist</p>
-                </div>
-              </div>
-
-              <div className="flex flex-col sm:flex-row items-start gap-2 sm:gap-3 p-2 sm:p-3 rounded-xl bg-gradient-to-br from-green-50 to-emerald-50">
-                <div className="w-5 h-5 sm:w-6 sm:h-6 bg-gradient-to-r from-green-500 to-emerald-500 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
-                  2
-                </div>
-                <div>
-                  <p className="text-xs sm:text-sm font-medium text-slate-700">Pega URL</p>
-                  <p className="text-xs text-slate-600">De YouTube</p>
-                </div>
-              </div>
-
-              <div className="flex flex-col sm:flex-row items-start gap-2 sm:gap-3 p-2 sm:p-3 rounded-xl bg-gradient-to-br from-purple-50 to-pink-50">
-                <div className="w-5 h-5 sm:w-6 sm:h-6 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
-                  3
-                </div>
-                <div>
-                  <p className="text-xs sm:text-sm font-medium text-slate-700">Elige formato</p>
-                  <p className="text-xs text-slate-600">MP3, WAV o M4A</p>
-                </div>
-              </div>
-
-              <div className="flex flex-col sm:flex-row items-start gap-2 sm:gap-3 p-2 sm:p-3 rounded-xl bg-gradient-to-br from-orange-50 to-red-50">
-                <div className="w-5 h-5 sm:w-6 sm:h-6 bg-gradient-to-r from-orange-500 to-red-500 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
-                  4
-                </div>
-                <div>
-                  <p className="text-xs sm:text-sm font-medium text-slate-700">Descarga</p>
-                  <p className="text-xs text-slate-600">Tu archivo</p>
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <div className="text-center mt-6 sm:mt-8 text-slate-500 text-xs animate-in fade-in duration-1000 delay-600 px-4">
-          <p>Respeta los derechos de autor • Usa solo contenido autorizado</p>
-        </div>
       </div>
     </div>
   )
