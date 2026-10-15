@@ -1,22 +1,26 @@
 'use client';
 
-import { AlertCircle, Check, Download, ExternalLink, Info, ListPlus, RotateCcw, X } from 'lucide-react';
+import { AlertCircle, Check, Download, ExternalLink, Info, ListPlus, LoaderCircle, RotateCcw, X } from 'lucide-react';
 import { memo, useState } from 'react';
-import type { Options, QueueItem } from '@/lib/queue';
+import { type Options, type QueueItem, isLoadingMeta, metaPhase } from '@/lib/queue';
 import { formatBytes, formatDuration, formatPct, formatSpeed } from '@/lib/format';
 import { type MessageContext, messageFor } from '@/lib/messages';
-import { estimateFor } from '@/lib/presets';
+import { estimateFor } from '@/lib/estimate';
 import { watchUrl } from '@/lib/youtube-url';
+import { Num } from '@/components/ui/Num';
 import { Meter, type MeterState } from './Meter';
 
 interface QueueRowProps {
   item: QueueItem;
   options: Options;
   busy: boolean;
+  /** La metadata completa falló de forma transitoria y se puede volver a pedir. */
+  metaFailed: boolean;
   messageCtx: MessageContext;
   onDownload: (key: string) => void;
   onRemove: (key: string) => void;
   onAddPlaylist: (listId: string) => void;
+  onRetryMeta: (videoId: string) => void;
 }
 
 export function estimatedBytes(item: QueueItem, o: Options): number | null {
@@ -58,12 +62,16 @@ function meterState(item: QueueItem): MeterState {
   return 'active';
 }
 
-function QueueRowImpl({ item, options, busy, messageCtx, onDownload, onRemove, onAddPlaylist }: QueueRowProps) {
+function QueueRowImpl({ item, options, busy, metaFailed, messageCtx, onDownload, onRemove, onAddPlaylist, onRetryMeta }: QueueRowProps) {
   const state = meterState(item);
   const phase = phaseLabel(item);
   const speed = item.status === 'downloading' ? formatSpeed(item.speedBps) : '';
   const size = estimatedBytes(item, options);
   const title = item.title ?? 'Video de YouTube';
+  const load = metaPhase(item, metaFailed);
+  const loading = isLoadingMeta(item, metaFailed);
+  const reading = loading && load === 'link';
+  const failedDetails = item.status === 'idle' && load === 'failed';
   const errorText = item.status === 'error' && item.error ? messageFor(item.error, { ...messageCtx, details: item.errorDetails }) : null;
   const metaErrorText = item.meta === 'error' && item.metaError ? messageFor(item.metaError, messageCtx) : null;
   const pctText = state === 'idle' && item.pct === 0 ? '' : formatPct(item.pct, item.status === 'done');
@@ -73,32 +81,52 @@ function QueueRowImpl({ item, options, busy, messageCtx, onDownload, onRemove, o
   const fichaId = `ficha-${item.key}`;
 
   return (
-    <li className="grid animate-row-in grid-cols-[96px_minmax(0,1fr)] gap-3 py-3 lg:grid-cols-[128px_minmax(0,1fr)] lg:gap-4">
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        src={item.thumbnail}
-        alt=""
-        width={128}
-        height={72}
-        loading="lazy"
-        decoding="async"
-        className="aspect-video w-24 rounded-control bg-line object-cover lg:w-32"
-      />
+    <li
+      aria-busy={loading || undefined}
+      className="grid animate-row-in grid-cols-[96px_minmax(0,1fr)] gap-3 py-2.5 md:py-3 lg:grid-cols-[128px_minmax(0,1fr)] lg:gap-4"
+    >
+      {reading ? (
+        <div aria-hidden="true" className="skel aspect-video w-24 rounded-control lg:w-32" />
+      ) : (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={item.thumbnail}
+          alt=""
+          width={128}
+          height={72}
+          loading="lazy"
+          decoding="async"
+          className="aspect-video w-24 rounded-control bg-line object-cover lg:w-32"
+        />
+      )}
       <div className="min-w-0">
         <div className="flex items-start gap-3">
           <div className="min-w-0 flex-1">
-            <p className="line-clamp-2 font-medium sm:line-clamp-1" title={title}>
-              {title}
-            </p>
-            {item.author ? (
-              <p className="line-clamp-1 text-sm text-ink-muted">{item.author}</p>
+            {reading ? (
+              <div aria-hidden="true" className="flex flex-col gap-1.5 pt-1">
+                <span className="skel block h-4 w-4/5" />
+                <span className="skel block h-3 w-2/5" />
+              </div>
+            ) : (
+              <p className="line-clamp-2 font-medium sm:line-clamp-1" title={title}>
+                {title}
+              </p>
+            )}
+            {reading ? (
+              <span className="visually-hidden">{title}</span>
+            ) : item.author ? (
+              <p className="hidden text-sm text-ink-muted md:line-clamp-1">{item.author}</p>
             ) : item.description ? (
               <p className="hidden text-sm text-ink-muted md:line-clamp-1" title={item.description}>
                 {item.description}
               </p>
             ) : null}
           </div>
-          <span className="num shrink-0 pt-0.5 text-sm text-ink-muted">{formatDuration(item.duration)}</span>
+          {item.duration != null ? (
+            <Num className="shrink-0 pt-0.5 text-sm">{formatDuration(item.duration)}</Num>
+          ) : loading ? (
+            <span aria-hidden="true" className="skel mt-1 block h-4 w-11 shrink-0" />
+          ) : null}
           {item.status === 'done' ? (
             <Check aria-hidden="true" focusable="false" className="mt-0.5 size-5 shrink-0 text-ok" />
           ) : null}
@@ -106,7 +134,7 @@ function QueueRowImpl({ item, options, busy, messageCtx, onDownload, onRemove, o
 
         <div className="mt-2 flex items-center gap-3">
           <Meter pct={item.pct} state={state} label={`Progreso de ${title}`} valueText={valueText} className="flex-1" />
-          <span className="num w-16 shrink-0 text-right text-sm">{pctText}</span>
+          <Num className="w-16 shrink-0 text-right text-sm">{pctText}</Num>
         </div>
 
         <div className="mt-1 flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
@@ -116,13 +144,35 @@ function QueueRowImpl({ item, options, busy, messageCtx, onDownload, onRemove, o
                 <AlertCircle aria-hidden="true" focusable="false" className="mt-0.5 size-4 shrink-0" />
                 <span>{errorText ?? metaErrorText}</span>
               </span>
+            ) : loading ? (
+              <span className="inline-flex items-center gap-1.5">
+                <LoaderCircle aria-hidden="true" focusable="false" className="size-4 shrink-0 animate-spin motion-reduce:animate-none" />
+                <span>{reading ? 'Leyendo enlace…' : 'Obteniendo detalles…'}</span>
+                {!reading ? <span aria-hidden="true" className="skel ml-1 block h-3.5 w-14" /> : null}
+              </span>
+            ) : failedDetails ? (
+              <span className="inline-flex items-center gap-1.5">
+                <AlertCircle aria-hidden="true" focusable="false" className="size-4 shrink-0" />
+                <span>Sin detalles</span>
+                <button
+                  type="button"
+                  onClick={() => onRetryMeta(item.videoId)}
+                  className="-my-3 inline-flex min-h-11 items-center rounded-control px-2 font-medium text-ink underline underline-offset-4 hover:bg-panel"
+                >
+                  Reintentar
+                </button>
+              </span>
             ) : (
               <>
                 {phase && item.status !== 'idle' ? <span>{phase}</span> : null}
-                {speed ? <span className="num ml-2">{speed}</span> : null}
-                {item.status === 'idle' && size ? <span className="num">≈ {formatBytes(size)}</span> : null}
+                {speed ? <Num className="ml-2">{speed}</Num> : null}
+                {item.status === 'idle' && size ? (
+                  <span>
+                    ≈ <Num>{formatBytes(size)}</Num>
+                  </span>
+                ) : null}
                 {item.status === 'idle' && item.origin?.title ? (
-                  <span className={size ? 'ml-2' : undefined}>De {item.origin.title}</span>
+                  <span className={`hidden md:inline${size ? ' ml-2' : ''}`}>De {item.origin.title}</span>
                 ) : null}
               </>
             )}
@@ -143,10 +193,11 @@ function QueueRowImpl({ item, options, busy, messageCtx, onDownload, onRemove, o
               <button
                 type="button"
                 onClick={() => onAddPlaylist(item.listId as string)}
-                className="inline-flex min-h-11 items-center gap-1.5 rounded-control px-2 text-sm text-ink hover:bg-panel"
+                title="Agregar la playlist completa"
+                className="inline-flex min-h-11 min-w-11 items-center justify-center gap-1.5 rounded-control px-2 text-sm text-ink hover:bg-panel"
               >
-                <ListPlus aria-hidden="true" focusable="false" className="size-4" />
-                Agregar la playlist completa
+                <ListPlus aria-hidden="true" focusable="false" className="size-5 md:size-4" />
+                <span className="max-md:sr-only">Agregar la playlist completa</span>
               </button>
             ) : null}
             {!busy && item.meta !== 'error' ? (
@@ -176,7 +227,7 @@ function QueueRowImpl({ item, options, busy, messageCtx, onDownload, onRemove, o
             </button>
           </div>
         </div>
-        {open ? <Ficha id={fichaId} item={item} options={options} /> : null}
+        {open ? <Ficha id={fichaId} item={item} options={options} loading={load === 'link' || load === 'details'} /> : null}
       </div>
     </li>
   );
@@ -185,7 +236,7 @@ function QueueRowImpl({ item, options, busy, messageCtx, onDownload, onRemove, o
 export const QueueRow = memo(QueueRowImpl);
 
 /** Ficha del video: todo lo que devuelve GET /api/videos/:id, con los tamaños de cada salida. */
-function Ficha({ id, item, options }: { id: string; item: QueueItem; options: Options }) {
+function Ficha({ id, item, options, loading }: { id: string; item: QueueItem; options: Options; loading: boolean }) {
   const sizes: { label: string; bytes: number | null; on: boolean }[] = [];
   if (item.estimated) {
     for (const q of [128, 192, 320] as const) {
@@ -204,7 +255,12 @@ function Ficha({ id, item, options }: { id: string; item: QueueItem; options: Op
   }
   return (
     <div id={id} className="ficha mt-2 grid gap-4 rounded-control border border-line p-3 text-sm sm:grid-cols-2">
-      {item.meta !== 'full' && item.meta !== 'error' ? <p className="text-ink-muted sm:col-span-2">Cargando datos del video…</p> : null}
+      {loading ? (
+        <p className="inline-flex items-center gap-1.5 text-ink-muted sm:col-span-2">
+          <LoaderCircle aria-hidden="true" focusable="false" className="size-4 shrink-0 animate-spin motion-reduce:animate-none" />
+          Obteniendo detalles…
+        </p>
+      ) : null}
       <dl className="grid grid-cols-[auto_minmax(0,1fr)] content-start gap-x-3 gap-y-1">
         {item.author ? (
           <>
@@ -213,7 +269,7 @@ function Ficha({ id, item, options }: { id: string; item: QueueItem; options: Op
           </>
         ) : null}
         <dt className="text-ink-muted">Duración</dt>
-        <dd className="num">{formatDuration(item.duration) || 'Desconocida'}</dd>
+        <dd>{item.duration != null ? <Num>{formatDuration(item.duration)}</Num> : 'Desconocida'}</dd>
         {item.origin?.title ? (
           <>
             <dt className="text-ink-muted">Playlist</dt>
@@ -223,7 +279,7 @@ function Ficha({ id, item, options }: { id: string; item: QueueItem; options: Op
         {item.qualities ? (
           <>
             <dt className="text-ink-muted">Video en</dt>
-            <dd className="num">{item.qualities.length ? item.qualities.map((q) => `${q}p`).join(', ') : 'Sin MP4 disponible'}</dd>
+            <dd>{item.qualities.length ? <Num>{item.qualities.map((q) => `${q}p`).join(', ')}</Num> : 'Sin MP4 disponible'}</dd>
           </>
         ) : null}
         <dt className="text-ink-muted">Link</dt>
@@ -247,14 +303,18 @@ function Ficha({ id, item, options }: { id: string; item: QueueItem; options: Op
             {sizes.map((s) => (
               <li key={s.label} className={`flex justify-between gap-2 ${s.on ? 'text-red-ink' : ''}`}>
                 <span>{s.label}</span>
-                <span className="num">{s.bytes != null ? formatBytes(s.bytes) : 'No disponible'}</span>
+                {s.bytes != null ? (
+                  <Num className={s.on ? 'text-red-ink' : undefined}>{formatBytes(s.bytes)}</Num>
+                ) : (
+                  <span className="text-ink-muted">No disponible</span>
+                )}
               </li>
             ))}
           </ul>
         </div>
       ) : null}
       {item.description ? (
-        <p className="line-clamp-6 whitespace-pre-line text-ink-muted sm:col-span-2">{item.description}</p>
+        <p className="hidden whitespace-pre-line text-ink-muted sm:col-span-2 md:line-clamp-6">{item.description}</p>
       ) : null}
     </div>
   );

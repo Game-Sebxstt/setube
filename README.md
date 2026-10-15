@@ -11,11 +11,11 @@ Este repo es solo el frontend. La conversión la hace la API (repo `api-setube`)
 - Barra de comandos para links. Acepta uno o varios por línea y marca cada línea en vivo como video, playlist o no válida. Pegar procesa al momento, `Enter` agrega, `Shift+Enter` añade otra línea y `Esc` limpia el campo. Las líneas no válidas se quedan en el campo para corregirlas.
 - Atajos globales: `Ctrl/Cmd+V` fuera de un campo pega directo en la barra, `/` o `Ctrl/Cmd+K` la enfocan y `Ctrl/Cmd+Enter` convierte desde cualquier parte.
 - Playlists: se expanden en sus videos (hasta el límite que devuelve la API) y muestran una tarjeta con miniatura, título, cantidad y aviso si se recortó. Un link `watch?v=...&list=...` agrega el video y ofrece "Agregar la playlist completa".
-- Panel de salida:
-  - Recetas rápidas: Música en alta (MP3 320), Uso diario (MP3 192), Podcast liviano (MP3 128), Audio original (M4A), Para editar (WAV), Video para el móvil (MP4 480p) y Video Full HD (MP4 1080p).
-  - Formatos MP3, M4A, WAV y MP4, cada uno con una explicación de qué hace el servidor (recodifica, copia sin recodificar o decodifica a PCM) y para qué sirve.
-  - Escalera de calidad para MP3 (128/192/320 kbps) y MP4 (360p a 1080p o "Máx."), con el tamaño estimado de cada peldaño. Con un solo video en la cola se deshabilitan las calidades que ese video no tiene.
-  - Resumen de la cola: videos convertibles sobre el máximo, duración total, tamaño estimado y duración máxima por video.
+- Selector de salida compacto, pegado bajo la barra de comandos en el mismo recuadro:
+  - Control segmentado Audio | Video y chips de formato (MP3, M4A, WAV o MP4).
+  - Calidad en un desplegable: MP3 a 128/192/320 kbps y MP4 de 360p a 1080p o "Mejor", con el tamaño estimado de cada opción. M4A queda en calidad original y WAV en 16 bits a 44,1 kHz. Con un solo video en la cola se deshabilitan las calidades que ese video no tiene.
+  - Una línea con lo que hace el formato elegido y otra con el resumen de la cola: videos, duración total, tamaño estimado y duración máxima por video.
+  - En desktop el botón Convertir/Cancelar va al final de esa fila; en móvil queda en la barra fija de abajo.
 - Ficha por video: canal, duración, playlist de origen, resoluciones disponibles, tamaño estimado para cada salida, descripción y enlace a YouTube.
 - Cola con progreso en vivo por SSE: medidor segmentado por fila con porcentaje, fase (en cola, obteniendo datos, descargando, convirtiendo, listo) y velocidad, más una barra general con el progreso total. En móvil esa barra queda fija abajo junto al botón principal.
 - Descarga con el gestor nativo del navegador: un video baja como archivo y dos o más como ZIP ("Descargar todo (ZIP)"). Cada fila se puede descargar, reintentar o quitar, la conversión en curso se puede cancelar y "Vaciar" la cola se puede deshacer.
@@ -114,7 +114,7 @@ El `.dockerignore` deja fuera `.env*`, las pruebas y algunos archivos sueltos de
 src/
   app/          layout, página, not-found, robots, sitemap, imágenes OG y estilos globales
   components/
-    converter/  barra de comandos, panel de salida, cola, filas, medidores y avisos
+    converter/  barra de comandos, selector de salida, cola, filas, medidores y avisos
     site/       cabecera, pie, FAQ, tema y JSON-LD
   config/       URLs públicas del sitio y CSP
   lib/          cliente de la API, tipos del contrato, estado de la cola, SSE, descargas, formato y persistencia

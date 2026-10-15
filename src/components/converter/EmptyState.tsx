@@ -14,13 +14,14 @@ const STEPS = [
 
 export function EmptyState({ onExample }: { onExample: () => void }) {
   return (
-    <div className="py-8">
-      <p className="font-display text-xl">Tu cola está vacía</p>
-      <p className="mt-1 max-w-[52ch] text-ink-muted">
+    <div className="py-5 md:py-8">
+      <p className="font-display text-lg md:text-xl">Tu cola está vacía</p>
+      <p className="mt-1 text-ink-muted md:hidden">Pega un link de video o de playlist para empezar.</p>
+      <p className="mt-1 hidden max-w-[52ch] text-ink-muted md:block">
         Pega un link de video o de playlist para empezar. No hace falta hacer clic en el campo: <kbd>Ctrl</kbd> <kbd>V</kbd> funciona
         en cualquier parte de la página.
       </p>
-      <ol className="mt-6 grid gap-4 sm:grid-cols-3">
+      <ol className="mt-6 hidden gap-4 md:grid md:grid-cols-3">
         {STEPS.map((s, i) => (
           <li key={s.t} className="border-t border-line pt-3">
             <span className="num text-sm text-red-ink" aria-hidden="true">
@@ -31,7 +32,7 @@ export function EmptyState({ onExample }: { onExample: () => void }) {
           </li>
         ))}
       </ol>
-      <div className="mt-6">
+      <div className="mt-6 hidden md:block">
         <p className="text-sm text-ink-muted">Links que reconoce</p>
         <ul className="mt-2 flex flex-wrap gap-2">
           {FORMS.map((f) => (
@@ -44,7 +45,7 @@ export function EmptyState({ onExample }: { onExample: () => void }) {
       <button
         type="button"
         onClick={onExample}
-        className="mt-6 inline-flex min-h-11 items-center rounded-control border border-edge px-4 text-sm font-medium text-ink hover:bg-panel"
+        className="mt-4 inline-flex min-h-11 items-center rounded-control border border-edge px-4 text-sm font-medium text-ink hover:bg-panel md:mt-6"
       >
         Probar con un video de ejemplo
       </button>

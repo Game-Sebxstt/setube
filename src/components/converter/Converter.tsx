@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { API_URL, TURNSTILE_SITE_KEY } from '@/config/site';
 import { ApiError, api, eventsUrl } from '@/lib/api';
-import { type ErrorCode, type JobStreamEvent, type PublicConfig, type Reject, toErrorCode } from '@/lib/contract';
+import { type ErrorCode, type JobStreamEvent, type PublicConfig, type Reject, type VideoMeta, toErrorCode } from '@/lib/contract';
 import { COMPILED_CONFIG } from '@/lib/defaults';
 import { type Dispatched, dispatchDownload, downloadTarget } from '@/lib/download';
 import { openJobEvents, type JobEventsHandle } from '@/lib/job-events';
@@ -22,6 +22,7 @@ import {
   activeJobIds,
   globalProgress,
   initialState,
+  isLoadingMeta,
   pendingItems,
   planLinks,
   reducer,
@@ -33,7 +34,7 @@ import { createTurnstile, type TurnstileHandle } from '@/lib/turnstile';
 import { playlistUrl } from '@/lib/youtube-url';
 import { type AddResult, CommandBar } from './CommandBar';
 import { MasterBar } from './MasterBar';
-import { OutputRack } from './OutputRack';
+import { OutputBar } from './OutputBar';
 import { Queue } from './Queue';
 import { Toaster, useToasts } from './Toaster';
 
@@ -85,24 +86,51 @@ export function Converter() {
   const resolveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const metaLimiter = useRef(createLimiter(3));
   const metaRequested = useRef(new Set<string>());
+  // respuestas ya recibidas, para las filas que vuelven a agregar el mismo video
+  const metaCache = useRef(new Map<string, { meta: VideoMeta } | { code: ErrorCode }>());
+  const [metaFailed, setMetaFailed] = useState<ReadonlySet<string>>(() => new Set());
 
-  const fetchMeta = useCallback((videoId: string) => {
-    if (metaRequested.current.has(videoId)) return;
-    metaRequested.current.add(videoId);
-    void metaLimiter.current(async () => {
-      try {
-        const meta = await api.video(videoId);
-        dispatch({ type: 'videoMeta', videoId, meta });
-      } catch (err) {
-        const code = err instanceof ApiError ? err.code : 'UNKNOWN';
-        dispatch({ type: 'videoMetaError', videoId, code });
-        // los errores transitorios se pueden volver a pedir más tarde
-        if (!['VIDEO_UNAVAILABLE', 'PRIVATE_VIDEO', 'AGE_RESTRICTED', 'LIVE_NOT_SUPPORTED'].includes(code)) {
-          metaRequested.current.delete(videoId);
-        }
-      }
+  const markMetaFailed = useCallback((videoId: string, failed: boolean) => {
+    setMetaFailed((prev) => {
+      if (prev.has(videoId) === failed) return prev;
+      const next = new Set(prev);
+      if (failed) next.add(videoId);
+      else next.delete(videoId);
+      return next;
     });
   }, []);
+
+  const fetchMeta = useCallback(
+    (videoId: string) => {
+      const cached = metaCache.current.get(videoId);
+      if (cached) {
+        if ('meta' in cached) dispatch({ type: 'videoMeta', videoId, meta: cached.meta });
+        else dispatch({ type: 'videoMetaError', videoId, code: cached.code });
+        return;
+      }
+      if (metaRequested.current.has(videoId)) return;
+      metaRequested.current.add(videoId);
+      markMetaFailed(videoId, false);
+      void metaLimiter.current(async () => {
+        try {
+          const meta = await api.video(videoId);
+          metaCache.current.set(videoId, { meta });
+          dispatch({ type: 'videoMeta', videoId, meta });
+        } catch (err) {
+          const code = err instanceof ApiError ? err.code : 'UNKNOWN';
+          dispatch({ type: 'videoMetaError', videoId, code });
+          // los errores transitorios se pueden volver a pedir más tarde
+          if (!['VIDEO_UNAVAILABLE', 'PRIVATE_VIDEO', 'AGE_RESTRICTED', 'LIVE_NOT_SUPPORTED'].includes(code)) {
+            metaRequested.current.delete(videoId);
+            markMetaFailed(videoId, true);
+          } else {
+            metaCache.current.set(videoId, { code });
+          }
+        }
+      });
+    },
+    [markMetaFailed],
+  );
 
   const loadPlaylist = useCallback(
     async (key: string, url: string) => {
@@ -480,6 +508,7 @@ export function Converter() {
   const downloadRow = useCallback((key: string) => void runJob([key]), [runJob]);
   const removeRow = useCallback((key: string) => dispatch({ type: 'remove', key }), []);
   const addPlaylist = useCallback((listId: string) => void addLines([playlistUrl(listId)]), [addLines]);
+  const retryMeta = useCallback((videoId: string) => fetchMeta(videoId), [fetchMeta]);
   const clear = () => {
     dispatch({ type: 'clear' });
     push('Se vació la cola.', 'info', { label: 'Deshacer', run: () => dispatch({ type: 'undoClear' }) });
@@ -510,12 +539,27 @@ export function Converter() {
     }, wait);
   }, [doneCount, progress.done, progress.total]);
 
+  const loadingItems = state.items.filter((i) => isLoadingMeta(i, metaFailed.has(i.videoId))).length;
+  const loadingPlaylists = state.playlists.filter((p) => p.status === 'loading').length;
+  const loadingTotal = loadingItems + loadingPlaylists;
+  const loadingPeak = useRef(0);
+  useEffect(() => {
+    if (loadingTotal > 0) {
+      loadingPeak.current = Math.max(loadingPeak.current, loadingItems);
+      return;
+    }
+    const n = loadingPeak.current;
+    loadingPeak.current = 0;
+    if (n === 0) return;
+    setAnnouncement(n === 1 ? 'Detalles del video cargados' : `Detalles de ${n} videos cargados`);
+  }, [loadingTotal, loadingItems]);
+
   const count = pending.length;
   const primary = hasActive ? (
     <button
       type="button"
       onClick={cancel}
-      className="inline-flex min-h-11 items-center justify-center rounded-control border border-red-ink px-5 font-display text-base text-red-ink"
+      className="inline-flex min-h-12 w-full items-center justify-center rounded-control border border-red-ink px-5 font-display text-base text-red-ink lg:min-h-11 lg:w-auto"
     >
       Cancelar
     </button>
@@ -524,7 +568,7 @@ export function Converter() {
       type="button"
       onClick={convert}
       disabled={valid.length === 0}
-      className="inline-flex min-h-11 items-center justify-center rounded-control bg-red px-5 font-display text-base text-white disabled:cursor-not-allowed disabled:opacity-60"
+      className="inline-flex min-h-12 w-full items-center justify-center rounded-control bg-red px-5 font-display text-base text-white disabled:cursor-not-allowed disabled:opacity-60 lg:min-h-11 lg:w-auto"
     >
       {count === 0 && valid.length > 0 ? 'Convertir todo de nuevo' : count > 1 ? `Convertir ${count}` : 'Convertir'}
     </button>
@@ -555,63 +599,51 @@ export function Converter() {
 
   return (
     <>
-      <div className="mx-auto max-w-7xl px-4 pt-6 pb-36 sm:px-6 lg:pt-10 lg:pb-12">
+      <div className="mx-auto max-w-7xl px-4 pt-4 pb-36 sm:px-6 md:pt-6 lg:pt-10 lg:pb-12">
         <div className="hero">
           <div className="flex flex-wrap items-end justify-between gap-x-8 gap-y-2">
             <h1 className="font-display hero-title">Convierte links de YouTube</h1>
-            <p className="max-w-[46ch] pb-1 text-ink-muted">
+            <p className="hidden max-w-[46ch] pb-1 text-ink-muted md:block">
               Videos y playlists a MP3, M4A, WAV o MP4. Varios a la vez, con el progreso de cada uno en vivo.
             </p>
           </div>
-          <div className="mt-5">
-            <CommandBar onSubmit={(lines) => addLines(lines)} error={state.inputError} />
-          </div>
-        </div>
-
-        <div className="mt-8 grid gap-8 lg:grid-cols-12 lg:gap-10">
-          <div className="min-w-0 lg:col-span-5 lg:col-start-8 lg:row-start-1">
-            <OutputRack
-              options={state.options}
-              config={config}
-              items={state.items}
-              singleQualities={single?.qualities ?? null}
-              onChange={setOptions}
-            >
-              <div className="mt-5 hidden flex-wrap gap-3 lg:flex">
-                {primary}
-                {canZip ? (
-                  <button
-                    type="button"
-                    onClick={zip}
-                    className="inline-flex min-h-11 items-center rounded-control border border-edge px-5 text-base font-medium text-ink hover:bg-bg"
-                  >
-                    Descargar todo (ZIP)
-                  </button>
-                ) : null}
-              </div>
-              <p className="mt-4 text-sm text-ink-muted">
-                Convierte solo contenido que te pertenezca o que tengas permiso para descargar.
-              </p>
-              {turnstileOn ? <div ref={turnstileEl} className="mt-4" /> : null}
-            </OutputRack>
-          </div>
-
-          <div className="flex min-w-0 flex-col gap-4 lg:col-span-7 lg:row-start-1">
-            <MasterBar progress={progress} primary={primary} showPrimaryOnDesktop={false} />
-            <Queue
-              state={state}
-              options={state.options}
-              messageCtx={messageCtx}
-              maxPlaylistItems={config.maxPlaylistItems}
-              canZip={canZip}
-              onZip={zip}
-              onClear={clear}
-              onDownload={downloadRow}
-              onRemove={removeRow}
-              onAddPlaylist={addPlaylist}
-              onExample={addExample}
+          <div className="mt-3 md:mt-5">
+            <CommandBar
+              onSubmit={(lines) => addLines(lines)}
+              error={state.inputError}
+              footer={
+                <OutputBar
+                  options={state.options}
+                  config={config}
+                  items={state.items}
+                  singleQualities={single?.qualities ?? null}
+                  loading={{ items: loadingItems, playlists: loadingPlaylists }}
+                  onChange={setOptions}
+                  action={primary}
+                />
+              }
             />
           </div>
+          {turnstileOn ? <div ref={turnstileEl} /> : null}
+        </div>
+
+        <div className="mt-4 flex min-w-0 flex-col gap-4">
+          <MasterBar progress={progress} primary={primary} showPrimaryOnDesktop={false} />
+          <Queue
+            state={state}
+            options={state.options}
+            metaFailed={metaFailed}
+            onRetryMeta={retryMeta}
+            messageCtx={messageCtx}
+            maxPlaylistItems={config.maxPlaylistItems}
+            canZip={canZip}
+            onZip={zip}
+            onClear={clear}
+            onDownload={downloadRow}
+            onRemove={removeRow}
+            onAddPlaylist={addPlaylist}
+            onExample={addExample}
+          />
         </div>
       </div>
       <p className="visually-hidden" aria-live="polite" aria-atomic="true">

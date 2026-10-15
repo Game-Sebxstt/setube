@@ -4,6 +4,7 @@ import { Check, CornerDownLeft, ListVideo, X } from 'lucide-react';
 import {
   type ClipboardEvent,
   type KeyboardEvent,
+  type ReactNode,
   type UIEvent,
   useEffect,
   useId,
@@ -11,6 +12,7 @@ import {
   useRef,
   useState,
 } from 'react';
+import { Num } from '@/components/ui/Num';
 import { parseYouTubeUrl } from '@/lib/youtube-url';
 
 export interface AddResult {
@@ -24,6 +26,8 @@ export interface AddResult {
 interface CommandBarProps {
   onSubmit: (lines: string[]) => AddResult;
   error: string | null;
+  /** Contenido pegado bajo el campo, dentro del mismo recuadro. */
+  footer?: ReactNode;
 }
 
 type LineKind = 'video' | 'playlist' | 'invalid' | 'empty';
@@ -57,7 +61,7 @@ function isEditable(t: EventTarget | null): boolean {
   return t.isContentEditable || t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT';
 }
 
-export function CommandBar({ onSubmit, error }: CommandBarProps) {
+export function CommandBar({ onSubmit, error, footer }: CommandBarProps) {
   const id = useId();
   const errorId = `${id}-error`;
   const hintId = `${id}-hint`;
@@ -140,54 +144,57 @@ export function CommandBar({ onSubmit, error }: CommandBarProps) {
       <label htmlFor={id} className="visually-hidden">
         Pega uno o varios links
       </label>
-      <div className="cmd-field">
-        <div className="cmd-gutter" aria-hidden="true">
-          <div style={{ transform: `translateY(${-scrollTop}px)` }}>
-            {rawLines.map((_, i) => {
-              const k = kinds[i] ?? 'empty';
-              return (
-                <span key={i} className="cmd-mark" data-kind={k}>
-                  {k === 'video' ? <Check className="size-3.5" /> : null}
-                  {k === 'playlist' ? <ListVideo className="size-3.5" /> : null}
-                  {k === 'invalid' ? <X className="size-3.5" /> : null}
-                  {k === 'empty' ? (i === 0 ? <span className="cmd-caret">$</span> : null) : null}
-                </span>
-              );
-            })}
+      <div className="cmd-box">
+        <div className="cmd-field">
+          <div className="cmd-gutter" aria-hidden="true">
+            <div style={{ transform: `translateY(${-scrollTop}px)` }}>
+              {rawLines.map((_, i) => {
+                const k = kinds[i] ?? 'empty';
+                return (
+                  <span key={i} className="cmd-mark" data-kind={k}>
+                    {k === 'video' ? <Check className="size-3.5" /> : null}
+                    {k === 'playlist' ? <ListVideo className="size-3.5" /> : null}
+                    {k === 'invalid' ? <X className="size-3.5" /> : null}
+                    {k === 'empty' ? (i === 0 ? <span className="cmd-caret">$</span> : null) : null}
+                  </span>
+                );
+              })}
+            </div>
           </div>
+          <textarea
+            ref={ref}
+            id={id}
+            name="links"
+            rows={rows}
+            wrap="off"
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            onPaste={handlePaste}
+            onKeyDown={handleKeyDown}
+            onScroll={onScroll}
+            placeholder="Pega aquí links de videos o playlists de YouTube"
+            spellCheck={false}
+            autoComplete="off"
+            autoCapitalize="off"
+            aria-invalid={error ? true : undefined}
+            aria-describedby={`${hintId}${error ? ` ${errorId}` : ''}`}
+            className="cmd-input"
+          />
+          <button
+            type="button"
+            onClick={() => process(splitLines(value))}
+            disabled={typed === 0}
+            className="cmd-submit"
+          >
+            <CornerDownLeft aria-hidden="true" focusable="false" className="size-4" />
+            Agregar
+          </button>
         </div>
-        <textarea
-          ref={ref}
-          id={id}
-          name="links"
-          rows={rows}
-          wrap="off"
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-          onPaste={handlePaste}
-          onKeyDown={handleKeyDown}
-          onScroll={onScroll}
-          placeholder="Pega aquí links de videos o playlists de YouTube"
-          spellCheck={false}
-          autoComplete="off"
-          autoCapitalize="off"
-          aria-invalid={error ? true : undefined}
-          aria-describedby={`${hintId}${error ? ` ${errorId}` : ''}`}
-          className="cmd-input"
-        />
-        <button
-          type="button"
-          onClick={() => process(splitLines(value))}
-          disabled={typed === 0}
-          className="cmd-submit"
-        >
-          <CornerDownLeft aria-hidden="true" focusable="false" className="size-4" />
-          Agregar
-        </button>
+        {footer}
       </div>
 
-      <div className="mt-3 flex flex-wrap items-start justify-between gap-x-6 gap-y-2 text-sm">
-        <p id={hintId} className="flex flex-wrap items-center gap-x-4 gap-y-1 text-ink-muted">
+      <div className="mt-2 flex flex-wrap items-start justify-between gap-x-6 gap-y-2 text-sm md:mt-3">
+        <p id={hintId} className="flex flex-wrap items-center gap-x-4 gap-y-1 text-ink-muted max-md:hidden">
           <span>
             <kbd>Ctrl</kbd> <kbd>V</kbd> pega desde cualquier parte
           </span>
@@ -203,8 +210,16 @@ export function CommandBar({ onSubmit, error }: CommandBarProps) {
         </p>
         {typed > 0 ? (
           <p className="flex flex-wrap gap-x-3 text-ink-muted" aria-hidden="true">
-            {counts.video ? <span className="text-ink">{plural(counts.video, 'video', 'videos')}</span> : null}
-            {counts.playlist ? <span className="text-ink">{plural(counts.playlist, 'playlist', 'playlists')}</span> : null}
+            {counts.video ? (
+              <span>
+                <Num>{counts.video}</Num> {counts.video === 1 ? 'video' : 'videos'}
+              </span>
+            ) : null}
+            {counts.playlist ? (
+              <span>
+                <Num>{counts.playlist}</Num> {counts.playlist === 1 ? 'playlist' : 'playlists'}
+              </span>
+            ) : null}
             {counts.invalid ? <span className="text-red-ink">{plural(counts.invalid, 'línea no válida', 'líneas no válidas')}</span> : null}
           </p>
         ) : null}

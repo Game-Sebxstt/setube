@@ -42,3 +42,12 @@ export function formatPct(pct: number, done = false): string {
 export function minutes(sec: number): string {
   return nf0.format(Math.round(sec / 60));
 }
+
+/** Límite de duración legible: 1200 → «20 min»; 3600 → «1 h»; 5400 → «1 h 30 min». */
+export function formatLimit(sec: number): string {
+  const total = Math.max(0, Math.round(sec / 60));
+  if (total < 60) return `${nf0.format(total)} min`;
+  const h = Math.floor(total / 60);
+  const m = total % 60;
+  return m ? `${nf0.format(h)} h ${nf0.format(m)} min` : `${nf0.format(h)} h`;
+}

@@ -670,6 +670,26 @@ export function globalProgress(state: State): GlobalProgress {
   return { pct, done: rows.filter((r) => r.status === 'done').length, total: rows.length, active: true };
 }
 
+export type MetaPhase = 'link' | 'details' | 'failed' | 'ready';
+
+/**
+ * Fase de carga de la metadata, derivada de lo que ya tiene la fila:
+ * sin título todavía se está leyendo el enlace; con título falta la ficha completa.
+ * `failed` marca una petición de metadata que falló de forma transitoria.
+ */
+export function metaPhase(i: QueueItem, failed: boolean): MetaPhase {
+  if (i.meta === 'full' || i.meta === 'error') return 'ready';
+  if (failed) return 'failed';
+  return i.title ? 'details' : 'link';
+}
+
+/** La fila está esperando su metadata y todavía no entró en ninguna conversión. */
+export function isLoadingMeta(i: QueueItem, failed: boolean): boolean {
+  if (i.status !== 'idle') return false;
+  const p = metaPhase(i, failed);
+  return p === 'link' || p === 'details';
+}
+
 export function rowActive(i: QueueItem): boolean {
   return ACTIVE_ROW.includes(i.status);
 }
