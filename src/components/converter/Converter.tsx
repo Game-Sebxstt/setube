@@ -37,6 +37,9 @@ import { MasterBar } from './MasterBar';
 import { OutputBar } from './OutputBar';
 import { Queue } from './Queue';
 import { Toaster, useToasts } from './Toaster';
+import { Player } from '@/components/player/Player';
+import { PlayerContext } from '@/components/player/PlayerContext';
+import { canPreview, createPlayer, toTrack, usePlayerCaps } from '@/lib/player';
 
 const MAX_ACTIVE_JOBS = 2;
 const RESOLVE_DEBOUNCE_MS = 200;
@@ -574,6 +577,35 @@ export function Converter() {
     </button>
   );
 
+  // Escucha en streaming: un único reproductor para toda la cola.
+
+  const [player] = useState(createPlayer);
+  const previewOn = config.preview === true;
+  const caps = usePlayerCaps(player);
+  const maxAudio = config.maxDurationAudioSec;
+  const tracks = useMemo(
+    () => (previewOn ? state.items.filter((i) => canPreview(i, maxAudio, caps)).map(toTrack) : []),
+    [state.items, previewOn, maxAudio, caps],
+  );
+  useEffect(() => {
+    player.setQueue(tracks);
+    const current = player.getState().track;
+    // la pista que se escucha salió de la cola
+    if (current && !state.items.some((i) => i.key === current.key)) player.close();
+  }, [player, tracks, state.items]);
+
+  const masterRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = masterRef.current;
+    if (!el) return;
+    const root = document.documentElement;
+    const set = () => root.style.setProperty('--master-h', `${el.offsetHeight}px`);
+    set();
+    const ro = new ResizeObserver(set);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
   const single = state.items.length === 1 ? state.items[0] : undefined;
   const canZip = valid.length >= 2 && !hasActive;
 
@@ -598,8 +630,8 @@ export function Converter() {
   const addExample = () => void addLines(['https://www.youtube.com/watch?v=jNQXAC9IVRw']);
 
   return (
-    <>
-      <div className="mx-auto max-w-7xl px-4 pt-4 pb-36 sm:px-6 md:pt-6 lg:pt-10 lg:pb-12">
+    <PlayerContext value={player}>
+      <div className="dock-pad mx-auto max-w-7xl px-4 pt-4 sm:px-6 md:pt-6 lg:pt-10">
         <div className="hero">
           <div className="flex flex-wrap items-end justify-between gap-x-8 gap-y-2">
             <h1 className="font-display hero-title">Convierte links de YouTube</h1>
@@ -628,7 +660,7 @@ export function Converter() {
         </div>
 
         <div className="mt-4 flex min-w-0 flex-col gap-4">
-          <MasterBar progress={progress} primary={primary} showPrimaryOnDesktop={false} />
+          <MasterBar ref={masterRef} progress={progress} primary={primary} showPrimaryOnDesktop={false} />
           <Queue
             state={state}
             options={state.options}
@@ -643,13 +675,15 @@ export function Converter() {
             onRemove={removeRow}
             onAddPlaylist={addPlaylist}
             onExample={addExample}
+            preview={previewOn}
           />
         </div>
       </div>
       <p className="visually-hidden" aria-live="polite" aria-atomic="true">
         {announcement}
       </p>
+      {previewOn ? <Player player={player} messageCtx={messageCtx} /> : null}
       <Toaster toasts={toasts} onDismiss={dismiss} />
-    </>
+    </PlayerContext>
   );
 }

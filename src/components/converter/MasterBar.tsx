@@ -1,6 +1,6 @@
 'use client';
 
-import type { ReactNode } from 'react';
+import type { ReactNode, Ref } from 'react';
 import { formatPct } from '@/lib/format';
 import type { GlobalProgress } from '@/lib/queue';
 import { Num } from '@/components/ui/Num';
@@ -11,9 +11,10 @@ interface MasterBarProps {
   /** Botón primario (Convertir/Cancelar); se muestra en móvil y, con jobs activos, también en desktop. */
   primary: ReactNode;
   showPrimaryOnDesktop: boolean;
+  ref?: Ref<HTMLDivElement>;
 }
 
-export function MasterBar({ progress, primary, showPrimaryOnDesktop }: MasterBarProps) {
+export function MasterBar({ progress, primary, showPrimaryOnDesktop, ref }: MasterBarProps) {
   const done = !progress.active && progress.total > 0 && progress.done === progress.total;
   const pct = progress.active ? progress.pct : done ? 100 : 0;
   const summary = progress.total > 0 ? `${progress.done} de ${progress.total} listos` : 'Sin conversiones';
@@ -21,7 +22,7 @@ export function MasterBar({ progress, primary, showPrimaryOnDesktop }: MasterBar
   // en móvil el medidor solo aparece cuando hay algo que medir
   const showMeter = progress.active || progress.done > 0;
   return (
-    <div className="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-bg px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] lg:static lg:z-auto lg:border-t-0 lg:border-b lg:bg-transparent lg:px-0 lg:pt-0 lg:pb-4">
+    <div ref={ref} className="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-bg px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] lg:static lg:z-auto lg:border-t-0 lg:border-b lg:bg-transparent lg:px-0 lg:pt-0 lg:pb-4">
       <div className={`flex items-center gap-3 lg:gap-4 ${showMeter ? 'max-lg:mb-2' : 'max-lg:hidden'}`}>
         <span className="hidden font-display text-base lg:inline">Master</span>
         <Meter

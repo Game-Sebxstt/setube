@@ -23,6 +23,7 @@ export const API_ERROR_CODES = [
   'RATE_LIMITED',
   'TOO_MANY_STREAMS',
   'TOO_MANY_SUBSCRIBERS',
+  'TOO_MANY_PREVIEWS',
   'QUEUE_FULL',
   'QUEUE_TIMEOUT',
   'INSTANCE_BUSY',
@@ -38,7 +39,7 @@ export const API_ERROR_CODES = [
 ] as const;
 
 export type ApiErrorCode = (typeof API_ERROR_CODES)[number];
-export const CLIENT_ERROR_CODES = ['NETWORK_ERROR', 'DOWNLOAD_BLOCKED', 'UNKNOWN'] as const;
+export const CLIENT_ERROR_CODES = ['NETWORK_ERROR', 'DOWNLOAD_BLOCKED', 'PLAYER_ERROR', 'PLAYER_UNSUPPORTED', 'UNKNOWN'] as const;
 export type ClientErrorCode = (typeof CLIENT_ERROR_CODES)[number];
 export type ErrorCode = ApiErrorCode | ClientErrorCode;
 
@@ -73,6 +74,8 @@ export interface PublicConfig {
   formats: { mp3: number[]; m4a: number[]; wav: number[]; mp4: (number | 'best')[] };
   defaults: { mp3: number; mp4: number };
   turnstile: boolean;
+  /** Escucha en streaming habilitada en la API. */
+  preview?: boolean;
 }
 
 // POST /api/resolve
@@ -104,7 +107,13 @@ export interface VideoMeta {
   thumbnail: string;
   description: string | null;
   live: false;
-  audio: { sourceCodec: string; sourceAbrKbps: number | null; m4aNative: boolean };
+  audio: {
+    sourceCodec: string;
+    sourceAbrKbps: number | null;
+    m4aNative: boolean;
+    /** Códecs disponibles para escuchar en streaming. */
+    preview?: { aac: boolean; opus: boolean };
+  };
   videoQualities: number[];
   estimatedBytes: {
     mp3: Record<'128' | '192' | '320', number>;

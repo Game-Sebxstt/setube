@@ -18,12 +18,19 @@ Este repo es solo el frontend. La conversión la hace la API (repo `api-setube`)
   - En desktop el botón Convertir/Cancelar va al final de esa fila; en móvil queda en la barra fija de abajo.
 - Ficha por video: canal, duración, playlist de origen, resoluciones disponibles, tamaño estimado para cada salida, descripción y enlace a YouTube.
 - Cola con progreso en vivo por SSE: medidor segmentado por fila con porcentaje, fase (en cola, obteniendo datos, descargando, convirtiendo, listo) y velocidad, más una barra general con el progreso total. En móvil esa barra queda fija abajo junto al botón principal.
+- Escuchar antes de convertir: cada video de la cola tiene un botón de reproducir sobre la miniatura. El audio llega en streaming desde `GET /api/videos/:videoId/audio` (AAC y, si el navegador no lo soporta, Opus), sin esperar a la conversión ni descargar el archivo completo.
+  - Un solo reproductor para toda la página: al darle play a otro video reemplaza al que sonaba, y la fila que suena queda marcada.
+  - Mini barra fija abajo con miniatura, título, canal, reproducir/pausar, posición con tiempo actual y duración, volumen y cerrar. En desktop suma anterior y siguiente; en móvil queda en una sola fila sobre la barra principal, con la posición como una línea fina y sin volumen (manda el del sistema).
+  - Nada suena solo: el audio no se precarga y empieza únicamente cuando lo pides. Si la conexión se corta, retoma desde el mismo punto; si el formato no funciona en tu navegador, prueba el otro una vez y, si no, avisa con un mensaje corto.
+  - Controles del sistema con Media Session: título, canal y miniatura en la pantalla de bloqueo, con reproducir, pausar, adelantar, retroceder y pasar al video anterior o siguiente de la cola.
+  - Teclado: `Espacio` reproduce o pausa cuando el foco no está en un campo o botón, y las flechas avanzan o retroceden 5 s con el foco dentro del reproductor.
+  - Solo aparece si la API lo tiene activo (`preview` en `GET /api/config`) y para videos que no superan la duración máxima de audio.
 - Descarga con el gestor nativo del navegador: un video baja como archivo y dos o más como ZIP ("Descargar todo (ZIP)"). Cada fila se puede descargar, reintentar o quitar, la conversión en curso se puede cancelar y "Vaciar" la cola se puede deshacer.
-- Persistencia local en `localStorage`: links de la cola (`setube_urls`), formato y calidad (`setube_prefs`) y tema (`setube_theme`).
+- Persistencia local en `localStorage`: links de la cola (`setube_urls`), formato y calidad (`setube_prefs`), tema (`setube_theme`) y volumen del reproductor (`setube_volume`).
 - Tema oscuro por defecto y claro opcional, aplicado antes del primer pintado para evitar el parpadeo.
 - Accesibilidad: controles nativos (radios, fieldsets, botones con `aria-pressed`), anuncios `aria-live` cuando terminan las conversiones, avisos que se pausan con el foco y objetivos táctiles de 44 px.
 - SEO: metadatos, Open Graph y Twitter con imagen generada, JSON-LD, `robots.txt` y `sitemap.xml`. FAQ estática renderizada en el servidor.
-- Cabeceras de seguridad: CSP estricta (incluye la URL de la API y Turnstile solo si está configurado), `nosniff`, `Referrer-Policy` y `Permissions-Policy`.
+- Cabeceras de seguridad: CSP estricta (incluye la URL de la API en `connect-src` y `media-src`, y Turnstile solo si está configurado), `nosniff`, `Referrer-Policy` y `Permissions-Policy`.
 - Cloudflare Turnstile invisible opcional, activo solo si la API lo pide y hay site key.
 
 ## Stack
@@ -67,7 +74,7 @@ Todas son públicas y de build: Next las incrusta en el bundle al compilar. Si c
 | `NEXT_PUBLIC_SITE_URL` | No | `https://setube.sebxstt.dev` | URL canónica del sitio para metadatos, sitemap y Open Graph. |
 | `NEXT_PUBLIC_TURNSTILE_SITE_KEY` | No | vacía | Site key de Cloudflare Turnstile. Vacía desactiva el captcha. |
 
-Los límites (videos por tanda, duración máxima, calidades) no se configuran aquí: la web los lee de `GET /api/config` y, si la llamada falla, usa los valores por defecto de `src/lib/defaults.ts`.
+Los límites (videos por tanda, duración máxima, calidades) y si se puede escuchar en streaming no se configuran aquí: la web los lee de `GET /api/config` y, si la llamada falla, usa los valores por defecto de `src/lib/defaults.ts`.
 
 ## Scripts
 
@@ -115,9 +122,10 @@ src/
   app/          layout, página, not-found, robots, sitemap, imágenes OG y estilos globales
   components/
     converter/  barra de comandos, selector de salida, cola, filas, medidores y avisos
+    player/     reproductor en streaming, botón de cada fila y Media Session
     site/       cabecera, pie, FAQ, tema y JSON-LD
   config/       URLs públicas del sitio y CSP
-  lib/          cliente de la API, tipos del contrato, estado de la cola, SSE, descargas, formato y persistencia
+  lib/          cliente de la API, tipos del contrato, estado de la cola y del reproductor, SSE, descargas, formato y persistencia
 test/           pruebas unitarias
 e2e/            pruebas de Playwright
 ```

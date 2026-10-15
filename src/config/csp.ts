@@ -35,6 +35,7 @@ export function buildCsp({ isDev, apiUrl, turnstile }: CspOptions): string {
     ['style-src', ["'self'", "'unsafe-inline'"]],
     ['img-src', ["'self'", 'https://i.ytimg.com', 'data:']],
     ['connect-src', connectSrc],
+    ['media-src', api ? ["'self'", api] : ["'self'"]],
     ['frame-src', frameSrc],
     ['font-src', ["'self'"]],
     ['frame-ancestors', ["'none'"]],

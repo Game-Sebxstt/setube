@@ -47,6 +47,7 @@ export const MESSAGES: Record<ErrorCode, Message> = {
   },
   TOO_MANY_STREAMS: 'Ya tienes varias descargas en curso. Espera a que termine alguna.',
   TOO_MANY_SUBSCRIBERS: 'Esta conversión está abierta en demasiadas pestañas.',
+  TOO_MANY_PREVIEWS: 'Tienes varias reproducciones abiertas. Cierra alguna e intenta de nuevo.',
   QUEUE_FULL: 'El servidor está ocupado. Intenta en un momento.',
   QUEUE_TIMEOUT: 'Tardó demasiado en tener turno. Reintenta.',
   INSTANCE_BUSY: 'El servidor está ocupado. Intenta en un momento.',
@@ -61,6 +62,8 @@ export const MESSAGES: Record<ErrorCode, Message> = {
   INTERNAL: 'Ocurrió un error inesperado. Intenta de nuevo.',
   NETWORK_ERROR: 'No se pudo conectar con el servidor.',
   DOWNLOAD_BLOCKED: 'Tu navegador pudo bloquear la descarga. Permite las descargas múltiples para este sitio.',
+  PLAYER_ERROR: 'No se pudo reproducir el audio.',
+  PLAYER_UNSUPPORTED: 'Tu navegador no puede reproducir este audio.',
   UNKNOWN: 'Ocurrió un error inesperado. Intenta de nuevo.',
 };
 

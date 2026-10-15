@@ -8,6 +8,9 @@ import { type MessageContext, messageFor } from '@/lib/messages';
 import { estimateFor } from '@/lib/estimate';
 import { watchUrl } from '@/lib/youtube-url';
 import { Num } from '@/components/ui/Num';
+import { PlayButton } from '@/components/player/PlayButton';
+import { usePlayer } from '@/components/player/PlayerContext';
+import { canPreview, toTrack, usePlayerCaps, usePlayerStatus } from '@/lib/player';
 import { Meter, type MeterState } from './Meter';
 
 interface QueueRowProps {
@@ -21,6 +24,8 @@ interface QueueRowProps {
   onRemove: (key: string) => void;
   onAddPlaylist: (listId: string) => void;
   onRetryMeta: (videoId: string) => void;
+  /** La API permite escuchar en streaming. */
+  preview: boolean;
 }
 
 export function estimatedBytes(item: QueueItem, o: Options): number | null {
@@ -62,7 +67,23 @@ function meterState(item: QueueItem): MeterState {
   return 'active';
 }
 
-function QueueRowImpl({ item, options, busy, metaFailed, messageCtx, onDownload, onRemove, onAddPlaylist, onRetryMeta }: QueueRowProps) {
+function QueueRowImpl({
+  item,
+  options,
+  busy,
+  metaFailed,
+  messageCtx,
+  onDownload,
+  onRemove,
+  onAddPlaylist,
+  onRetryMeta,
+  preview,
+}: QueueRowProps) {
+  const player = usePlayer();
+  const caps = usePlayerCaps(player);
+  const playStatus = usePlayerStatus(player, item.key);
+  const playable = preview && player !== null && canPreview(item, messageCtx.maxDurationAudioSec ?? 3600, caps);
+  const current = playStatus !== null && playStatus !== 'idle';
   const state = meterState(item);
   const phase = phaseLabel(item);
   const speed = item.status === 'downloading' ? formatSpeed(item.speedBps) : '';
@@ -88,16 +109,21 @@ function QueueRowImpl({ item, options, busy, metaFailed, messageCtx, onDownload,
       {reading ? (
         <div aria-hidden="true" className="skel aspect-video w-24 rounded-control lg:w-32" />
       ) : (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={item.thumbnail}
-          alt=""
-          width={128}
-          height={72}
-          loading="lazy"
-          decoding="async"
-          className="aspect-video w-24 rounded-control bg-line object-cover lg:w-32"
-        />
+        <div className={`relative self-start rounded-control ${current ? 'ring-2 ring-red' : ''}`}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={item.thumbnail}
+            alt=""
+            width={128}
+            height={72}
+            loading="lazy"
+            decoding="async"
+            className="aspect-video w-24 rounded-control bg-line object-cover lg:w-32"
+          />
+          {playable && player ? (
+            <PlayButton title={title} status={playStatus} onToggle={() => player.toggle(toTrack(item))} />
+          ) : null}
+        </div>
       )}
       <div className="min-w-0">
         <div className="flex items-start gap-3">
@@ -109,6 +135,13 @@ function QueueRowImpl({ item, options, busy, metaFailed, messageCtx, onDownload,
               </div>
             ) : (
               <p className="line-clamp-2 font-medium sm:line-clamp-1" title={title}>
+                {playStatus === 'playing' ? (
+                  <span aria-hidden="true" className="eq mr-2 align-middle">
+                    <span />
+                    <span />
+                    <span />
+                  </span>
+                ) : null}
                 {title}
               </p>
             )}

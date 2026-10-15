@@ -83,7 +83,7 @@ export function Toaster({ toasts, onDismiss }: { toasts: Toast[]; onDismiss: (id
     <div
       aria-label="Notificaciones"
       role="region"
-      className="pointer-events-none fixed inset-x-0 bottom-24 z-50 mx-auto flex max-w-md flex-col gap-2 px-4 lg:right-6 lg:bottom-6 lg:left-auto lg:mx-0 lg:w-96 lg:px-0"
+      className="toaster pointer-events-none fixed inset-x-0 z-50 mx-auto flex max-w-md flex-col gap-2 px-4 lg:right-6 lg:left-auto lg:mx-0 lg:w-96 lg:px-0"
     >
       {toasts.map((t) => (
         <ToastItem key={t.id} toast={t} onDismiss={onDismiss} />

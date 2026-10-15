@@ -39,6 +39,8 @@ export interface QueueItem {
   description: string | null;
   qualities: number[] | null;
   estimated: VideoMeta['estimatedBytes'] | null;
+  /** Códecs con los que se puede escuchar; null hasta tener la metadata completa. */
+  preview: { aac: boolean; opus: boolean } | null;
   meta: 'local' | 'quick' | 'full' | 'error';
   metaError?: ErrorCode;
   run: { jobId: string; itemId: string } | null;
@@ -203,6 +205,7 @@ function newRow(n: NewItem): QueueItem {
     description: null,
     qualities: null,
     estimated: null,
+    preview: null,
     meta: 'local',
     run: null,
     status: 'idle',
@@ -434,6 +437,7 @@ export function reducer(state: State, action: Action): State {
               description: m.description,
               qualities: m.videoQualities,
               estimated: m.estimatedBytes,
+              preview: m.audio?.preview ?? null,
             }
           : i,
       );

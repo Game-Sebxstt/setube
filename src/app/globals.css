@@ -100,7 +100,7 @@
   }
   /* Los elementos enfocados no quedan bajo la barra master fija de móvil */
   :focus {
-    scroll-margin-bottom: 96px;
+    scroll-margin-bottom: calc(96px + var(--player-h, 0px));
   }
   ::selection {
     background: var(--red);
@@ -466,6 +466,138 @@
     }
   }
 
+  /* Espacio inferior para la barra master (móvil) y el reproductor */
+  .dock-pad {
+    padding-bottom: calc(var(--master-h, 8rem) + var(--player-h, 0px) + 1rem);
+  }
+  .toaster {
+    bottom: calc(var(--master-h, 5rem) + var(--player-h, 0px) + 1rem);
+  }
+  .player-bar {
+    bottom: var(--master-h, 0px);
+  }
+  @media (min-width: 64rem) {
+    .dock-pad {
+      padding-bottom: calc(var(--player-h, 0px) + 3rem);
+    }
+    .toaster {
+      bottom: calc(var(--player-h, 0px) + 1.5rem);
+    }
+    .player-bar {
+      bottom: 0;
+      padding-bottom: env(safe-area-inset-bottom);
+    }
+  }
+
+  /* Barra de posición y volumen del reproductor */
+  .seek {
+    --pct: 0%;
+    --buf: 0%;
+    -webkit-appearance: none;
+    appearance: none;
+    display: block;
+    width: 100%;
+    min-width: 0;
+    height: 24px;
+    margin: 0;
+    background: transparent;
+    cursor: pointer;
+  }
+  .seek::-webkit-slider-runnable-track {
+    height: 4px;
+    border-radius: var(--radius-seg);
+    background: linear-gradient(
+      to right,
+      var(--ink) 0 var(--pct),
+      var(--ink-muted) var(--pct) max(var(--pct), var(--buf)),
+      var(--edge) max(var(--pct), var(--buf)) 100%
+    );
+  }
+  .seek::-moz-range-track {
+    height: 4px;
+    border-radius: var(--radius-seg);
+    background: linear-gradient(
+      to right,
+      var(--ink) 0 var(--pct),
+      var(--ink-muted) var(--pct) max(var(--pct), var(--buf)),
+      var(--edge) max(var(--pct), var(--buf)) 100%
+    );
+  }
+  .seek::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 12px;
+    height: 12px;
+    margin-top: -4px;
+    border: 0;
+    border-radius: 50%;
+    background: var(--ink);
+  }
+  .seek::-moz-range-thumb {
+    width: 12px;
+    height: 12px;
+    border: 0;
+    border-radius: 50%;
+    background: var(--ink);
+  }
+  .seek:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+  .seek:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+  }
+  @media (max-width: 63.999rem) {
+    /* en móvil la posición va como una línea fina sobre el borde superior */
+    .seek-wrap {
+      position: absolute;
+      inset-inline: 0;
+      top: -13px;
+    }
+    .seek-wrap .seek::-webkit-slider-thumb {
+      width: 10px;
+      height: 10px;
+      margin-top: -3px;
+    }
+    .seek-wrap .seek::-moz-range-thumb {
+      width: 10px;
+      height: 10px;
+    }
+  }
+
+  /* Indicador de la fila que suena */
+  .eq {
+    display: inline-flex;
+    align-items: flex-end;
+    gap: 2px;
+    width: 12px;
+    height: 12px;
+  }
+  .eq > span {
+    flex: 1;
+    height: 100%;
+    border-radius: 1px;
+    background: var(--ink);
+    transform-origin: bottom;
+    animation: eq 900ms ease-in-out infinite;
+  }
+  .eq > span:nth-child(2) {
+    animation-delay: -300ms;
+  }
+  .eq > span:nth-child(3) {
+    animation-delay: -600ms;
+  }
+  @keyframes eq {
+    0%,
+    100% {
+      transform: scaleY(0.35);
+    }
+    50% {
+      transform: scaleY(1);
+    }
+  }
+
   @media (max-width: 767px) {
     .seg-opt {
       min-height: 44px;
@@ -490,5 +622,9 @@
   .skel {
     animation: none !important;
     background-image: none;
+  }
+  .eq > span {
+    animation: none !important;
+    transform: scaleY(0.7);
   }
 }

@@ -3,6 +3,7 @@ import type { Format, Kind, Quality } from './contract';
 export const URLS_KEY = 'setube_urls';
 export const PREFS_KEY = 'setube_prefs';
 export const THEME_KEY = 'setube_theme';
+export const VOLUME_KEY = 'setube_volume';
 
 export type Theme = 'dark' | 'light';
 export interface Prefs {
@@ -88,6 +89,16 @@ export function loadTheme(s: StorageLike | null | undefined): Theme {
 }
 export function saveTheme(s: StorageLike | null | undefined, t: Theme): void {
   safeSet(s, THEME_KEY, t);
+}
+
+/** Volumen del reproductor entre 0 y 1; cualquier otro valor vuelve a 1. */
+export function loadVolume(s: StorageLike | null | undefined): number {
+  const raw = safeGet(s, VOLUME_KEY);
+  const v = raw === null || raw.trim() === '' ? Number.NaN : Number(raw);
+  return Number.isFinite(v) && v >= 0 && v <= 1 ? v : 1;
+}
+export function saveVolume(s: StorageLike | null | undefined, v: number): void {
+  safeSet(s, VOLUME_KEY, String(Math.round(Math.min(1, Math.max(0, v)) * 100) / 100));
 }
 
 /** Acceso seguro a window.localStorage (puede lanzar en algunos navegadores). */

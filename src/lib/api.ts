@@ -83,6 +83,34 @@ export async function request<T>(path: string, opts: RequestOptions = {}): Promi
   throw new ApiError(toErrorCode(body?.error?.code), res.status, body?.error?.message ?? res.statusText, details);
 }
 
+export type PreviewCodec = 'aac' | 'opus';
+
+/** URL del audio en streaming; `sid` identifica al reproductor ante los topes de la API. */
+export const previewUrl = (videoId: string, codec: PreviewCodec, sid: string) =>
+  `${API_URL}/api/videos/${encodeURIComponent(videoId)}/audio?codec=${codec}&sid=${encodeURIComponent(sid)}`;
+
+/** Pide el primer byte del audio para saber por qué falló el reproductor. Devuelve el Content-Type servido. */
+export async function previewProbe(videoId: string, codec: PreviewCodec, sid: string, signal?: AbortSignal): Promise<string> {
+  let res: Response;
+  try {
+    res = await fetch(previewUrl(videoId, codec, sid), { headers: { Range: 'bytes=0-0' }, cache: 'no-store', signal });
+  } catch (err) {
+    if (signal?.aborted) throw err;
+    throw new ApiError('NETWORK_ERROR', 0, 'network');
+  }
+  if (res.ok) {
+    void res.body?.cancel().catch(() => undefined);
+    return res.headers.get('content-type') ?? '';
+  }
+  let body: ErrorBody | null = null;
+  try {
+    body = (await res.json()) as ErrorBody;
+  } catch {
+    body = null;
+  }
+  throw new ApiError(toErrorCode(body?.error?.code), res.status, body?.error?.message ?? res.statusText, body?.error?.details);
+}
+
 export const api = {
   config: (signal?: AbortSignal) => request<PublicConfig>('/api/config', { signal, timeoutMs: 5000 }),
   resolve: (body: ResolveRequest, signal?: AbortSignal) =>

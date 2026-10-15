@@ -22,6 +22,8 @@ interface QueueProps {
   /** Videos cuya metadata falló de forma transitoria. */
   metaFailed: ReadonlySet<string>;
   onRetryMeta: (videoId: string) => void;
+  /** Muestra el botón de escuchar en cada fila. */
+  preview: boolean;
 }
 
 export function Queue({
@@ -38,6 +40,7 @@ export function Queue({
   options,
   metaFailed,
   onRetryMeta,
+  preview,
 }: QueueProps) {
   const count = state.items.length;
   const empty = count === 0 && state.playlists.length === 0;
@@ -83,6 +86,7 @@ export function Queue({
               onRemove={onRemove}
               onAddPlaylist={onAddPlaylist}
               onRetryMeta={onRetryMeta}
+              preview={preview}
             />
           ))}
         </ul>
