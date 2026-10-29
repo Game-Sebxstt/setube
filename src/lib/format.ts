@@ -51,3 +51,13 @@ export function formatLimit(sec: number): string {
   const m = total % 60;
   return m ? `${nf0.format(h)} h ${nf0.format(m)} min` : `${nf0.format(h)} h`;
 }
+
+/** Vistas abreviadas: 950 → «950», 12_345 → «12 mil», 6_562_112 → «6,6 M», 1_531_204_677 → «1,5 mil M». */
+export function formatViews(n: number | null | undefined): string {
+  if (n == null || !Number.isFinite(n) || n < 0) return '';
+  const short = (v: number) => (v < 10 ? nf1.format(Math.floor(v * 10) / 10).replace(/,0$/, '') : nf0.format(Math.floor(v)));
+  if (n < 1000) return nf0.format(n);
+  if (n < 1e6) return `${short(n / 1e3)} mil`;
+  if (n < 1e9) return `${short(n / 1e6)} M`;
+  return `${short(n / 1e9)} mil M`;
+}

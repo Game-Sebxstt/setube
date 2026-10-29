@@ -3,7 +3,16 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { API_URL, TURNSTILE_SITE_KEY } from '@/config/site';
 import { ApiError, api, eventsUrl } from '@/lib/api';
-import { type ErrorCode, type JobStreamEvent, type PublicConfig, type Reject, type VideoMeta, toErrorCode } from '@/lib/contract';
+import {
+  type ErrorCode,
+  type JobStreamEvent,
+  type PublicConfig,
+  type Reject,
+  type SearchItem,
+  type SearchResult,
+  type VideoMeta,
+  toErrorCode,
+} from '@/lib/contract';
 import { COMPILED_CONFIG } from '@/lib/defaults';
 import { type Dispatched, dispatchDownload, downloadTarget } from '@/lib/download';
 import { openJobEvents, type JobEventsHandle } from '@/lib/job-events';
@@ -31,11 +40,12 @@ import {
 } from '@/lib/queue';
 import { browserStorage, loadPrefs, loadUrls, savePrefs, saveUrls } from '@/lib/storage';
 import { createTurnstile, type TurnstileHandle } from '@/lib/turnstile';
-import { playlistUrl } from '@/lib/youtube-url';
+import { playlistUrl, watchUrl } from '@/lib/youtube-url';
 import { type AddResult, CommandBar } from './CommandBar';
 import { MasterBar } from './MasterBar';
 import { OutputBar } from './OutputBar';
 import { Queue } from './Queue';
+import { type SearchState, SearchResults } from './SearchResults';
 import { Toaster, useToasts } from './Toaster';
 import { Player } from '@/components/player/Player';
 import { PlayerContext } from '@/components/player/PlayerContext';
@@ -629,6 +639,47 @@ export function Converter() {
   }, []);
   const addExample = () => void addLines(['https://www.youtube.com/watch?v=jNQXAC9IVRw']);
 
+  // Búsqueda: una a la vez, la nueva cancela la anterior. Las respuestas se guardan por consulta.
+
+  const searchOn = config.search === true;
+  const [search, setSearch] = useState<SearchState>({ status: 'idle' });
+  const searchCtrl = useRef<AbortController | null>(null);
+  const searchCache = useRef(new Map<string, SearchResult>());
+  const runSearch = useCallback(async (query: string) => {
+    searchCtrl.current?.abort();
+    const key = query.toLocaleLowerCase('es');
+    const cached = searchCache.current.get(key);
+    if (cached) {
+      setSearch({ status: 'ready', query, items: cached.items });
+      return;
+    }
+    const ctrl = new AbortController();
+    searchCtrl.current = ctrl;
+    setSearch({ status: 'loading', query });
+    try {
+      const result = await api.search(query, ctrl.signal);
+      if (ctrl.signal.aborted) return;
+      searchCache.current.set(key, result);
+      setSearch({ status: 'ready', query, items: result.items });
+    } catch (err) {
+      if (ctrl.signal.aborted) return;
+      setSearch({ status: 'error', query, code: err instanceof ApiError ? err.code : 'UNKNOWN' });
+    }
+  }, []);
+  const closeSearch = useCallback(() => {
+    searchCtrl.current?.abort();
+    setSearch({ status: 'idle' });
+  }, []);
+  useEffect(() => () => searchCtrl.current?.abort(), []);
+  const addFromSearch = useCallback(
+    (it: SearchItem) => {
+      const r = addLines([watchUrl(it.videoId)]);
+      if (r.videos > 0) setAnnouncement(`Agregado a la cola: ${it.title ?? 'video'}`);
+    },
+    [addLines],
+  );
+  const queuedIds = useMemo(() => new Set(state.items.map((i) => i.videoId)), [state.items]);
+
   return (
     <PlayerContext value={player}>
       <div className="dock-pad mx-auto max-w-7xl px-4 pt-4 sm:px-6 md:pt-6 lg:pt-10">
@@ -642,6 +693,8 @@ export function Converter() {
           <div className="mt-3 md:mt-5">
             <CommandBar
               onSubmit={(lines) => addLines(lines)}
+              onSearch={searchOn ? (q) => void runSearch(q) : undefined}
+              onClear={closeSearch}
               error={state.inputError}
               footer={
                 <OutputBar
@@ -656,6 +709,14 @@ export function Converter() {
               }
             />
           </div>
+          <SearchResults
+            state={search}
+            queued={queuedIds}
+            maxDurationSec={state.options.format === 'mp4' ? config.maxDurationVideoSec : config.maxDurationAudioSec}
+            onAdd={addFromSearch}
+            onRetry={() => search.status !== 'idle' && void runSearch(search.query)}
+            onClose={closeSearch}
+          />
           {turnstileOn ? <div ref={turnstileEl} /> : null}
         </div>
 

@@ -9,4 +9,5 @@ export const COMPILED_CONFIG: PublicConfig = {
   defaults: { mp3: 192, mp4: 720 },
   turnstile: false,
   preview: false,
+  search: false,
 };

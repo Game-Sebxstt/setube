@@ -265,6 +265,9 @@
   .cmd-mark[data-kind='playlist'] {
     color: var(--ok);
   }
+  .cmd-mark[data-kind='search'] {
+    color: var(--ink);
+  }
   .cmd-mark[data-kind='invalid'] {
     color: var(--red-ink);
   }
@@ -325,6 +328,120 @@
     color: var(--ink-muted);
     border: 1px dashed var(--edge);
     cursor: not-allowed;
+  }
+
+  /* Resultados de búsqueda: filas en móvil, tarjetas desde 640 px */
+  .search {
+    margin-top: 0.75rem;
+  }
+  .search-q {
+    quotes: '«' '»';
+  }
+  .search-grid {
+    display: grid;
+    gap: 0.25rem;
+    margin-top: 0.25rem;
+  }
+  .search-card {
+    display: grid;
+    grid-template-columns: 7.5rem minmax(0, 1fr) auto;
+    align-items: start;
+    gap: 0.75rem;
+    padding: 0.5rem;
+    margin: 0 -0.5rem;
+    width: calc(100% + 1rem);
+    border-radius: var(--radius-panel);
+  }
+  .search-thumb {
+    aspect-ratio: 16 / 9;
+    width: 100%;
+    overflow: hidden;
+    border-radius: var(--radius-control);
+    background: var(--line);
+  }
+  .search-badge {
+    position: absolute;
+    right: 0.25rem;
+    bottom: 0.25rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0 0.375rem;
+    border-radius: var(--radius-seg);
+    background: rgb(0 0 0 / 0.78);
+    color: #fff;
+    font-size: 0.75rem;
+    line-height: 1.25rem;
+    font-weight: 600;
+  }
+  .search-badge-live {
+    background: var(--red);
+  }
+  .search-action {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.375rem;
+    min-width: 44px;
+    min-height: 44px;
+    border-radius: var(--radius-control);
+    border: 1px solid var(--edge);
+    color: var(--ink);
+    font-size: var(--text-sm);
+    font-weight: 600;
+  }
+  .search-btn {
+    cursor: pointer;
+    transition: background-color 150ms ease-out;
+  }
+  .search-btn:hover:not(:disabled) {
+    background: var(--panel);
+  }
+  .search-btn:hover:not(:disabled) .search-action,
+  .search-btn:focus-visible .search-action {
+    border-color: var(--ink);
+    background: var(--ink);
+    color: var(--bg);
+  }
+  .search-btn:disabled {
+    cursor: default;
+  }
+  .search-btn[data-state='queued'] .search-action {
+    border-color: transparent;
+    color: var(--ok);
+  }
+  .search-btn[data-state='live'] {
+    opacity: 0.6;
+  }
+  .search-btn[data-state='live'] .search-action {
+    display: none;
+  }
+  @media (min-width: 640px) {
+    .search-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 1rem 1.25rem;
+      margin-top: 0.75rem;
+    }
+    .search-card {
+      grid-template-columns: minmax(0, 1fr);
+      grid-template-rows: auto 1fr auto;
+      gap: 0.5rem;
+      height: calc(100% + 1rem);
+    }
+    .search-action {
+      justify-self: start;
+      padding: 0 0.875rem;
+    }
+  }
+  @media (min-width: 1024px) {
+    .search-grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+  }
+  @media (min-width: 1280px) {
+    .search-grid {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
   }
 
   /* Selector de salida pegado a la barra de comandos */

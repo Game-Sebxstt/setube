@@ -76,6 +76,24 @@ export interface PublicConfig {
   turnstile: boolean;
   /** Escucha en streaming habilitada en la API. */
   preview?: boolean;
+  /** Búsqueda de videos habilitada en la API (`GET /api/search`). */
+  search?: boolean;
+}
+
+// GET /api/search?q=
+export interface SearchItem {
+  videoId: string;
+  title: string | null;
+  author: string | null;
+  duration: number | null;
+  views: number | null;
+  live: boolean;
+  thumbnail: string;
+}
+
+export interface SearchResult {
+  query: string;
+  items: SearchItem[];
 }
 
 // POST /api/resolve

@@ -9,6 +9,7 @@ import {
   type PublicConfig,
   type ResolveRequest,
   type ResolveResponse,
+  type SearchResult,
   type VideoMeta,
   toErrorCode,
 } from './contract';
@@ -117,6 +118,8 @@ export const api = {
     request<ResolveResponse>('/api/resolve', { method: 'POST', body, signal, timeoutMs: 15_000 }),
   video: (videoId: string, signal?: AbortSignal) =>
     request<VideoMeta>(`/api/videos/${encodeURIComponent(videoId)}`, { signal, timeoutMs: 45_000 }),
+  search: (q: string, signal?: AbortSignal) =>
+    request<SearchResult>(`/api/search?${new URLSearchParams({ q }).toString()}`, { signal, timeoutMs: 45_000 }),
   playlist: (url: string, signal?: AbortSignal) =>
     request<PlaylistResult>('/api/playlists/resolve', { method: 'POST', body: { url }, signal, timeoutMs: 45_000 }),
   createJob: (body: CreateJobRequest) => request<CreatedJob>('/api/jobs', { method: 'POST', body, timeoutMs: 30_000 }),

@@ -1,6 +1,6 @@
 # Setube (web)
 
-Cliente web de Setube, un convertidor de YouTube a audio y video. Pegas links de videos o playlists, eliges formato y calidad, y la descarga empieza en streaming mientras ves el progreso real de cada video. Los archivos no se guardan en el servidor.
+Cliente web de Setube, un convertidor de YouTube a audio y video. Buscas un video o pegas links de videos o playlists, eliges formato y calidad, y la descarga empieza en streaming mientras ves el progreso real de cada video. Los archivos no se guardan en el servidor.
 
 Hecho por [Sebxstt](https://github.com/GarcesSebastian). En producción: [setube.sebxstt.dev](https://setube.sebxstt.dev).
 
@@ -9,6 +9,12 @@ Este repo es solo el frontend. La conversión la hace la API (repo `api-setube`)
 ## Qué hace la interfaz
 
 - Barra de comandos para links. Acepta uno o varios por línea y marca cada línea en vivo como video, playlist o no válida. Pegar procesa al momento, `Enter` agrega, `Shift+Enter` añade otra línea y `Esc` limpia el campo. Las líneas no válidas se quedan en el campo para corregirlas.
+- Búsqueda en la misma barra: si escribes una sola línea que no es un link (por ejemplo `bad bunny monaco`), el margen muestra una lupa, el botón pasa a "Buscar" y `Enter` busca en YouTube con `GET /api/search`.
+  - Los resultados salen bajo la barra con miniatura, duración, título, canal y vistas. En móvil son filas con la miniatura a la izquierda y un botón `+` de 44 px; desde 640 px son tarjetas en 2, 3 o 4 columnas según el ancho.
+  - Tocar un resultado lo agrega a la cola y la tarjeta pasa a "En la cola". Los directos van al final, marcados "En vivo" y sin poder agregarse. Si un video supera la duración máxima del formato elegido, lo avisa en la tarjeta.
+  - Mientras busca muestra tarjetas de carga; si falla, el mensaje del error y "Buscar de nuevo". `Esc` vacía el campo y cierra los resultados, y una búsqueda nueva cancela la anterior. Las búsquedas ya hechas se reutilizan sin volver a pedirlas.
+  - Pegar texto suelto con `Ctrl/Cmd+V` fuera del campo lo escribe en la barra y lo busca. Lo que parece una URL de otro sitio no se busca: se marca como no válido.
+  - Solo aparece si la API la tiene activa (`search` en `GET /api/config`).
 - Atajos globales: `Ctrl/Cmd+V` fuera de un campo pega directo en la barra, `/` o `Ctrl/Cmd+K` la enfocan y `Ctrl/Cmd+Enter` convierte desde cualquier parte.
 - Playlists: se expanden en sus videos (hasta el límite que devuelve la API) y muestran una tarjeta con miniatura, título, cantidad y aviso si se recortó. Un link `watch?v=...&list=...` agrega el video y ofrece "Agregar la playlist completa".
 - Selector de salida compacto, pegado bajo la barra de comandos en el mismo recuadro:
