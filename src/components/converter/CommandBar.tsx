@@ -15,6 +15,7 @@ import {
 import { Num } from '@/components/ui/Num';
 import { searchQuery } from '@/lib/search';
 import { parseYouTubeUrl } from '@/lib/youtube-url';
+import { RecentSearches } from './RecentSearches';
 
 export interface AddResult {
   invalid: string[];
@@ -33,7 +34,15 @@ interface CommandBarProps {
   error: string | null;
   /** Contenido pegado bajo el campo, dentro del mismo recuadro. */
   footer?: ReactNode;
+  /** Búsquedas recientes, de la más reciente a la más antigua. Solo se usan si hay `onSearch`. */
+  recent?: readonly string[];
+  /** Si se pueden mostrar las recientes (por ejemplo, con los resultados cerrados). */
+  showRecent?: boolean;
+  onRemoveRecent?: (query: string) => void;
+  onClearRecent?: () => void;
 }
+
+const NO_RECENT: readonly string[] = [];
 
 type LineKind = 'video' | 'playlist' | 'invalid' | 'empty';
 
@@ -66,7 +75,17 @@ function isEditable(t: EventTarget | null): boolean {
   return t.isContentEditable || t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT';
 }
 
-export function CommandBar({ onSubmit, onSearch, onClear, error, footer }: CommandBarProps) {
+export function CommandBar({
+  onSubmit,
+  onSearch,
+  onClear,
+  error,
+  footer,
+  recent = NO_RECENT,
+  showRecent = false,
+  onRemoveRecent,
+  onClearRecent,
+}: CommandBarProps) {
   const id = useId();
   const errorId = `${id}-error`;
   const hintId = `${id}-hint`;
@@ -162,6 +181,26 @@ export function CommandBar({ onSubmit, onSearch, onClear, error, footer }: Comma
       setValue('');
       onClear?.();
     }
+  };
+
+  // Recientes: solo con el campo vacío, sin resultados abiertos y con algo guardado.
+  const recentVisible = Boolean(onSearch) && showRecent && !value.trim() && recent.length > 0;
+  const pickRecent = (q: string) => {
+    ref.current?.focus();
+    setNotice('');
+    const query = searchQuery(q);
+    setValue(query ?? q);
+    // lo guardado siempre es una consulta, salvo que alguien haya editado el almacenamiento a mano
+    if (query && onSearch) onSearch(query);
+  };
+  const removeRecent = (q: string) => {
+    onRemoveRecent?.(q);
+    // era la última: el foco vuelve al campo
+    if (recent.length <= 1) ref.current?.focus();
+  };
+  const clearRecent = () => {
+    onClearRecent?.();
+    ref.current?.focus();
   };
 
   const onScroll = (e: UIEvent<HTMLTextAreaElement>) => setScrollTop(e.currentTarget.scrollTop);
@@ -273,6 +312,14 @@ export function CommandBar({ onSubmit, onSearch, onClear, error, footer }: Comma
           <p className="text-ink-muted">{notice}</p>
         ) : null}
       </div>
+      {onSearch && onRemoveRecent && onClearRecent ? (
+        <RecentSearches
+          items={recentVisible ? recent : NO_RECENT}
+          onPick={pickRecent}
+          onRemove={removeRecent}
+          onClear={clearRecent}
+        />
+      ) : null}
     </div>
   );
 }

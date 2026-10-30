@@ -444,6 +444,99 @@
     }
   }
 
+  /* Búsquedas recientes: chips bajo la barra, en el hueco de los resultados */
+  .recent {
+    margin-top: 0.75rem;
+  }
+  .recent-title {
+    font-size: var(--text-sm);
+    font-weight: 600;
+    color: var(--ink-muted);
+  }
+  .recent-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem 0.75rem;
+    margin-top: 0.5rem;
+  }
+  .recent-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    min-width: 0;
+    max-width: 100%;
+  }
+  .recent-chip {
+    display: inline-flex;
+    align-items: stretch;
+    min-width: 0;
+    max-width: 100%;
+    border: 1px solid var(--edge);
+    border-radius: var(--radius-control);
+    background: var(--panel);
+    transition: border-color 120ms ease-out;
+  }
+  .recent-chip:hover {
+    border-color: var(--ink);
+  }
+  .recent-pick,
+  .recent-remove {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    border-radius: var(--radius-control);
+    color: var(--ink);
+    cursor: pointer;
+    transition: background-color 120ms ease-out, color 120ms ease-out;
+  }
+  .recent-pick {
+    gap: 0.5rem;
+    min-width: 0;
+    padding: 0 0.25rem 0 0.75rem;
+    font-size: var(--text-sm);
+    font-weight: 500;
+  }
+  .recent-q {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .recent-remove {
+    justify-content: center;
+    flex-shrink: 0;
+    width: 44px;
+    color: var(--ink-muted);
+  }
+  .recent-remove:hover {
+    color: var(--ink);
+    background: var(--bg);
+  }
+  .recent-pick:focus-visible,
+  .recent-remove:focus-visible {
+    outline-offset: -2px;
+  }
+  .recent-clear {
+    min-height: 44px;
+    padding: 0 0.25rem;
+    border-radius: var(--radius-control);
+    color: var(--ink-muted);
+    font-size: var(--text-sm);
+    font-weight: 500;
+    text-decoration: underline;
+    text-underline-offset: 4px;
+    cursor: pointer;
+  }
+  .recent-clear:hover {
+    color: var(--ink);
+  }
+  @media (min-width: 640px) {
+    .recent-chip {
+      max-width: 22rem;
+    }
+  }
+
   /* Selector de salida pegado a la barra de comandos */
   .out {
     border-top: 1px solid var(--line);

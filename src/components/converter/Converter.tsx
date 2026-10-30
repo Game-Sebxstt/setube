@@ -38,7 +38,7 @@ import {
   toUrls,
   validItems,
 } from '@/lib/queue';
-import { createRecentSearches } from '@/lib/recent-searches';
+import { createRecentSearches, useRecentSearches } from '@/lib/recent-searches';
 import { browserStorage, loadPrefs, loadUrls, savePrefs, saveUrls } from '@/lib/storage';
 import { createTurnstile, type TurnstileHandle } from '@/lib/turnstile';
 import { playlistUrl, watchUrl } from '@/lib/youtube-url';
@@ -648,6 +648,16 @@ export function Converter() {
   const searchCache = useRef(new Map<string, SearchResult>());
   // Historial en el navegador: se guarda cada búsqueda lanzada, aunque venga de la caché o falle.
   const [recent] = useState(createRecentSearches);
+  const recentItems = useRecentSearches(recent);
+  const clearRecent = useCallback(() => {
+    const saved = recent.getSnapshot();
+    recent.clear();
+    // lo buscado después de borrar se conserva delante de lo recuperado
+    push('Se borró el historial de búsqueda.', 'info', {
+      label: 'Deshacer',
+      run: () => recent.restore([...recent.getSnapshot(), ...saved]),
+    });
+  }, [recent, push]);
   const runSearch = useCallback(async (query: string) => {
     recent.add(query);
     searchCtrl.current?.abort();
@@ -699,6 +709,10 @@ export function Converter() {
               onSubmit={(lines) => addLines(lines)}
               onSearch={searchOn ? (q) => void runSearch(q) : undefined}
               onClear={closeSearch}
+              recent={recentItems}
+              showRecent={search.status === 'idle'}
+              onRemoveRecent={recent.remove}
+              onClearRecent={clearRecent}
               error={state.inputError}
               footer={
                 <OutputBar
