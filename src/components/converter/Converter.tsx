@@ -38,6 +38,7 @@ import {
   toUrls,
   validItems,
 } from '@/lib/queue';
+import { createRecentSearches } from '@/lib/recent-searches';
 import { browserStorage, loadPrefs, loadUrls, savePrefs, saveUrls } from '@/lib/storage';
 import { createTurnstile, type TurnstileHandle } from '@/lib/turnstile';
 import { playlistUrl, watchUrl } from '@/lib/youtube-url';
@@ -645,7 +646,10 @@ export function Converter() {
   const [search, setSearch] = useState<SearchState>({ status: 'idle' });
   const searchCtrl = useRef<AbortController | null>(null);
   const searchCache = useRef(new Map<string, SearchResult>());
+  // Historial en el navegador: se guarda cada búsqueda lanzada, aunque venga de la caché o falle.
+  const [recent] = useState(createRecentSearches);
   const runSearch = useCallback(async (query: string) => {
+    recent.add(query);
     searchCtrl.current?.abort();
     const key = query.toLocaleLowerCase('es');
     const cached = searchCache.current.get(key);
@@ -665,7 +669,7 @@ export function Converter() {
       if (ctrl.signal.aborted) return;
       setSearch({ status: 'error', query, code: err instanceof ApiError ? err.code : 'UNKNOWN' });
     }
-  }, []);
+  }, [recent]);
   const closeSearch = useCallback(() => {
     searchCtrl.current?.abort();
     setSearch({ status: 'idle' });
