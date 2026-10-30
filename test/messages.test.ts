@@ -3,9 +3,9 @@ import { API_ERROR_CODES, CLIENT_ERROR_CODES } from '../src/lib/contract';
 import { MESSAGES, messageFor } from '../src/lib/messages';
 
 describe('messages', () => {
-  it('el catálogo tiene 36 códigos', () => {
-    expect(API_ERROR_CODES).toHaveLength(36);
-    expect(new Set(API_ERROR_CODES).size).toBe(36);
+  it('el catálogo tiene 37 códigos', () => {
+    expect(API_ERROR_CODES).toHaveLength(37);
+    expect(new Set(API_ERROR_CODES).size).toBe(37);
   });
 
   it.each([...API_ERROR_CODES, ...CLIENT_ERROR_CODES])('%s tiene copy propio no vacío', (code) => {
