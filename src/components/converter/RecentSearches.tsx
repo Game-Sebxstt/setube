@@ -19,14 +19,16 @@ interface RecentSearchesProps {
 export function RecentSearches({ items, onPick, onRemove, onClear }: RecentSearchesProps) {
   const headingId = useId();
   const listRef = useRef<HTMLUListElement>(null);
-  const [message, setMessage] = useState('');
+  // id cambia en cada anuncio: el texto va en un nodo nuevo y se lee aunque se repita el mismo mensaje
+  const [message, setMessage] = useState({ text: '', id: 0 });
+  const announce = (text: string) => setMessage((m) => ({ text, id: m.id + 1 }));
 
   const remove = (query: string, index: number) => {
     // el foco pasa a la siguiente o, si no hay, a la anterior (los nodos se conservan: la key es la consulta)
     const picks = listRef.current?.querySelectorAll<HTMLButtonElement>('[data-recent-pick]');
     const target = picks?.[index + 1] ?? picks?.[index - 1] ?? null;
     onRemove(query);
-    setMessage(`Se quitó «${query}» del historial.`);
+    announce(`Se quitó «${query}» del historial.`);
     target?.focus();
   };
 
@@ -45,7 +47,7 @@ export function RecentSearches({ items, onPick, onRemove, onClear }: RecentSearc
                     type="button"
                     data-recent-pick=""
                     onClick={() => {
-                      setMessage('');
+                      announce('');
                       onPick(q);
                     }}
                     aria-label={`Buscar «${q}»`}
@@ -70,7 +72,7 @@ export function RecentSearches({ items, onPick, onRemove, onClear }: RecentSearc
             <button
               type="button"
               onClick={() => {
-                setMessage('');
+                announce('');
                 onClear();
               }}
               className="recent-clear"
@@ -81,7 +83,7 @@ export function RecentSearches({ items, onPick, onRemove, onClear }: RecentSearc
         </section>
       ) : null}
       <p className="visually-hidden" aria-live="polite">
-        {message}
+        {message.text ? <span key={message.id}>{message.text}</span> : null}
       </p>
     </>
   );
