@@ -14,7 +14,8 @@ Este repo es solo el frontend. La conversión la hace la API (repo `api-setube`)
   - Tocar un resultado lo agrega a la cola y la tarjeta pasa a "En la cola". Los directos van al final, marcados "En vivo" y sin poder agregarse. Si un video supera la duración máxima del formato elegido, lo avisa en la tarjeta.
   - Mientras busca muestra tarjetas de carga; si falla, el mensaje del error y "Buscar de nuevo". `Esc` vacía el campo y cierra los resultados, y una búsqueda nueva cancela la anterior. Las búsquedas ya hechas se reutilizan sin volver a pedirlas.
   - Pegar texto suelto con `Ctrl/Cmd+V` fuera del campo lo escribe en la barra y lo busca. Lo que parece una URL de otro sitio no se busca: se marca como no válido.
-  - Solo aparece si la API la tiene activa (`search` en `GET /api/config`).
+  - Búsquedas recientes: se guardan las últimas 8 en el navegador, de la más reciente a la más antigua, y salen como chips bajo la barra cuando el campo está vacío y no hay resultados abiertos. Repetir una sin distinguir mayúsculas la sube al principio en vez de duplicarla. Tocar un chip la vuelve a buscar, su `X` la quita del historial y "Borrar historial" lo vacía con un aviso que permite deshacer. Se sincronizan entre pestañas y nunca salen del navegador.
+  - Solo aparece si la API la tiene activa (`search` en `GET /api/config`). Si la desactiva, el historial deja de verse pero no se borra.
 - Atajos globales: `Ctrl/Cmd+V` fuera de un campo pega directo en la barra, `/` o `Ctrl/Cmd+K` la enfocan y `Ctrl/Cmd+Enter` convierte desde cualquier parte.
 - Playlists: se expanden en sus videos (hasta el límite que devuelve la API) y muestran una tarjeta con miniatura, título, cantidad y aviso si se recortó. Un link `watch?v=...&list=...` agrega el video y ofrece "Agregar la playlist completa".
 - Selector de salida compacto, pegado bajo la barra de comandos en el mismo recuadro:
@@ -32,7 +33,7 @@ Este repo es solo el frontend. La conversión la hace la API (repo `api-setube`)
   - Teclado: `Espacio` reproduce o pausa cuando el foco no está en un campo o botón, y las flechas avanzan o retroceden 5 s con el foco dentro del reproductor.
   - Solo aparece si la API lo tiene activo (`preview` en `GET /api/config`) y para videos que no superan la duración máxima de audio.
 - Descarga con el gestor nativo del navegador: un video baja como archivo y dos o más como ZIP ("Descargar todo (ZIP)"). Cada fila se puede descargar, reintentar o quitar, la conversión en curso se puede cancelar y "Vaciar" la cola se puede deshacer.
-- Persistencia local en `localStorage`: links de la cola (`setube_urls`), formato y calidad (`setube_prefs`), tema (`setube_theme`) y volumen del reproductor (`setube_volume`).
+- Persistencia local en `localStorage`: links de la cola (`setube_urls`), formato y calidad (`setube_prefs`), búsquedas recientes (`setube_searches`), tema (`setube_theme`) y volumen del reproductor (`setube_volume`).
 - Tema oscuro por defecto y claro opcional, aplicado antes del primer pintado para evitar el parpadeo.
 - Accesibilidad: controles nativos (radios, fieldsets, botones con `aria-pressed`), anuncios `aria-live` cuando terminan las conversiones, avisos que se pausan con el foco y objetivos táctiles de 44 px.
 - SEO: metadatos, Open Graph y Twitter con imagen generada, JSON-LD, `robots.txt` y `sitemap.xml`. FAQ estática renderizada en el servidor.
@@ -93,6 +94,14 @@ Los límites (videos por tanda, duración máxima, calidades) y si se puede escu
 | `npm run lint` | ESLint |
 | `npm test` | Pruebas unitarias con Vitest |
 | `npm run e2e` | Pruebas de Playwright contra el stack de Docker Compose |
+
+`e2e/recent-searches.spec.ts` simula la API con `context.route` de Playwright (`/api/config`, `/api/search` y las miniaturas de `i.ytimg.com`), así que no necesita el stack: basta con la web servida. Por ejemplo, con `npm run build` y `npm run start -- -p 3100` en otra terminal:
+
+```bash
+E2E_BASE_URL=http://127.0.0.1:3100 npx playwright test e2e/recent-searches.spec.ts
+```
+
+`e2e/smoke.spec.ts` sí necesita la API real.
 
 ## Docker
 
