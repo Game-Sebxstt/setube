@@ -4,6 +4,12 @@ export const URLS_KEY = 'setube_urls';
 export const PREFS_KEY = 'setube_prefs';
 export const THEME_KEY = 'setube_theme';
 export const VOLUME_KEY = 'setube_volume';
+export const SEARCHES_KEY = 'setube_searches';
+
+/** Búsquedas recientes que se recuerdan, de la más reciente a la más antigua. */
+export const MAX_RECENT_SEARCHES = 8;
+/** Las consultas más largas (ya normalizadas) no se guardan. */
+export const MAX_SEARCH_LENGTH = 200;
 
 export type Theme = 'dark' | 'light';
 export interface Prefs {
@@ -99,6 +105,75 @@ export function loadVolume(s: StorageLike | null | undefined): number {
 }
 export function saveVolume(s: StorageLike | null | undefined, v: number): void {
   safeSet(s, VOLUME_KEY, String(Math.round(Math.min(1, Math.max(0, v)) * 100) / 100));
+}
+
+/** Consulta en una sola línea con espacios colapsados; `null` si queda vacía o pasa del límite. */
+function normalizeSearch(q: unknown): string | null {
+  if (typeof q !== 'string') return null;
+  const n = q.trim().replace(/\s+/g, ' ');
+  return n.length > 0 && n.length <= MAX_SEARCH_LENGTH ? n : null;
+}
+// Igual que la caché de resultados: no distingue mayúsculas
+function searchKey(q: string): string {
+  return q.toLocaleLowerCase('es');
+}
+
+/** Normaliza, quita duplicados (gana el primero, el más reciente) y recorta al máximo. */
+function cleanSearches(list: readonly unknown[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const entry of list) {
+    const q = normalizeSearch(entry);
+    if (q === null) continue;
+    const key = searchKey(q);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(q);
+    if (out.length === MAX_RECENT_SEARCHES) break;
+  }
+  return out;
+}
+
+/** Parsea `setube_searches`: solo `{v:1, items: string[]}`. Cualquier otra cosa → []. */
+export function parseRecentSearches(raw: string | null): string[] {
+  if (!raw) return [];
+  let data: unknown;
+  try {
+    data = JSON.parse(raw);
+  } catch {
+    return [];
+  }
+  if (!data || typeof data !== 'object' || (data as { v?: unknown }).v !== 1) return [];
+  const items = (data as { items?: unknown }).items;
+  return Array.isArray(items) ? cleanSearches(items) : [];
+}
+
+export function serializeRecentSearches(list: readonly string[]): string {
+  return JSON.stringify({ v: 1, items: list });
+}
+
+/** Pone la consulta primero sin duplicarla. Vacía o demasiado larga → la misma lista. */
+export function addRecentSearch(list: readonly string[], q: string): readonly string[] {
+  const n = normalizeSearch(q);
+  if (n === null) return list;
+  const key = searchKey(n);
+  return [n, ...list.filter((e) => searchKey(e) !== key)].slice(0, MAX_RECENT_SEARCHES);
+}
+
+/** Quita la consulta sin distinguir mayúsculas. Si no estaba → la misma lista. */
+export function removeRecentSearch(list: readonly string[], q: string): readonly string[] {
+  const n = normalizeSearch(q);
+  if (n === null) return list;
+  const key = searchKey(n);
+  const next = list.filter((e) => searchKey(e) !== key);
+  return next.length === list.length ? list : next;
+}
+
+export function loadRecentSearches(s: StorageLike | null | undefined): string[] {
+  return parseRecentSearches(safeGet(s, SEARCHES_KEY));
+}
+export function saveRecentSearches(s: StorageLike | null | undefined, list: readonly string[]): void {
+  safeSet(s, SEARCHES_KEY, serializeRecentSearches(list));
 }
 
 /** Acceso seguro a window.localStorage (puede lanzar en algunos navegadores). */
