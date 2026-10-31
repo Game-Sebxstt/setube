@@ -1,6 +1,6 @@
 'use client';
 
-import { AlertCircle, Check, Download, ExternalLink, Info, ListPlus, LoaderCircle, RotateCcw, X } from 'lucide-react';
+import { AlertCircle, Check, Download, ExternalLink, Info, ListPlus, LoaderCircle, MonitorPlay, RotateCcw, X } from 'lucide-react';
 import { memo, useState } from 'react';
 import { type Options, type QueueItem, isLoadingMeta, metaPhase } from '@/lib/queue';
 import { formatBytes, formatDuration, formatPct, formatSpeed } from '@/lib/format';
@@ -10,7 +10,16 @@ import { watchUrl } from '@/lib/youtube-url';
 import { Num } from '@/components/ui/Num';
 import { PlayButton } from '@/components/player/PlayButton';
 import { usePlayer } from '@/components/player/PlayerContext';
-import { canPreview, toTrack, usePlayerCaps, usePlayerStatus } from '@/lib/player';
+import {
+  canPreview,
+  canPreviewVideo,
+  toTrack,
+  usePlayerCaps,
+  usePlayerPreferredMode,
+  usePlayerStatus,
+  usePlayerTrackMode,
+  usePlayerVideoCaps,
+} from '@/lib/player';
 import { Meter, type MeterState } from './Meter';
 
 interface QueueRowProps {
@@ -26,6 +35,8 @@ interface QueueRowProps {
   onRetryMeta: (videoId: string) => void;
   /** La API permite escuchar en streaming. */
   preview: boolean;
+  /** La API permite ver el video en streaming. */
+  previewVideo: boolean;
 }
 
 export function estimatedBytes(item: QueueItem, o: Options): number | null {
@@ -78,11 +89,20 @@ function QueueRowImpl({
   onAddPlaylist,
   onRetryMeta,
   preview,
+  previewVideo,
 }: QueueRowProps) {
   const player = usePlayer();
   const caps = usePlayerCaps(player);
+  const videoCaps = usePlayerVideoCaps(player);
+  const preferredMode = usePlayerPreferredMode(player);
+  const trackMode = usePlayerTrackMode(player, item.key);
   const playStatus = usePlayerStatus(player, item.key);
-  const playable = preview && player !== null && canPreview(item, messageCtx.maxDurationAudioSec ?? 3600, caps);
+  const maxAudio = messageCtx.maxDurationAudioSec ?? 3600;
+  const playable = preview && player !== null && canPreview(item, maxAudio, caps);
+  const watchable = playable && previewVideo && canPreviewVideo(item, maxAudio, videoCaps);
+  // la miniatura sigue en el modo de la pista actual o, si no suena, usa el preferido
+  const thumbMode = trackMode ?? (watchable && preferredMode === 'video' ? 'video' : 'audio');
+  const watching = trackMode === 'video';
   const current = playStatus !== null && playStatus !== 'idle';
   const state = meterState(item);
   const phase = phaseLabel(item);
@@ -121,7 +141,13 @@ function QueueRowImpl({
             className="aspect-video w-24 rounded-control bg-line object-cover lg:w-32"
           />
           {playable && player ? (
-            <PlayButton title={title} status={playStatus} onToggle={() => player.toggle(toTrack(item))} />
+            <PlayButton
+              title={title}
+              status={playStatus}
+              mode={thumbMode}
+              onToggle={() => player.toggle(toTrack(item, watchable))}
+              onIntent={thumbMode === 'video' ? () => player.warmVideo() : undefined}
+            />
           ) : null}
         </div>
       )}
@@ -211,6 +237,20 @@ function QueueRowImpl({
             )}
           </p>
           <div className="-mr-2 flex shrink-0 items-center">
+            {watchable && player ? (
+              <button
+                type="button"
+                aria-pressed={watching}
+                aria-label={`Ver video de ${title}`}
+                title={watching ? 'Solo audio' : 'Ver video'}
+                onPointerEnter={() => player.warmVideo()}
+                onFocus={() => player.warmVideo()}
+                onClick={() => player.toggle(toTrack(item, true), watching ? 'audio' : 'video')}
+                className="inline-flex size-11 items-center justify-center rounded-control text-ink hover:bg-panel aria-pressed:text-red-ink"
+              >
+                <MonitorPlay aria-hidden="true" focusable="false" className="size-5" />
+              </button>
+            ) : null}
             <button
               type="button"
               aria-expanded={open}

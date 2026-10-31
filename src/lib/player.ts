@@ -10,6 +10,7 @@ import {
   type VideoSource,
   detectVideoCaps,
   hasVideo,
+  loadHls,
   openVideoSource,
 } from './video-source';
 
@@ -251,6 +252,11 @@ export interface Player {
   toggle(track: Track, mode?: PlayerMode): void;
   /** El usuario elige el modo: se guarda como preferido y, si hay pista, se cambia en el mismo segundo y estado. */
   setMode(mode: PlayerMode): void;
+  /**
+   * Descarga hls.js antes del primer «Ver video» (al pasar el ratón o enfocar el botón), para que la fuente
+   * y `play()` vayan dentro del gesto del usuario. Sin MSE no hace nada.
+   */
+  warmVideo(): void;
   play(): void;
   pause(): void;
   retry(): void;
@@ -282,6 +288,11 @@ export function createPlayer(): Player {
   let switchedCodec = false;
   let lastTime = 0;
   let resumeAt: number | null = null;
+  /**
+   * Segundo de un cambio de modo o de un reintento mientras el elemento nuevo aún está en 0.
+   * Se publica en lugar de `currentTime` hasta que el elemento llega a ese punto (sin saltos a 0 en la barra).
+   */
+  let pendingAt: number | null = null;
   let resumePlay = false;
   let budgetTimer: ReturnType<typeof setTimeout> | null = null;
   let probe: AbortController | null = null;
@@ -308,7 +319,9 @@ export function createPlayer(): Player {
       }
       return;
     }
-    const current = a.currentTime || 0;
+    // el elemento nuevo ya llegó al segundo pendiente (tiene cabecera y avanzó desde 0)
+    if (pendingAt !== null && a.readyState > 0 && a.currentTime > 0) pendingAt = null;
+    const current = pendingAt ?? (a.currentTime || 0);
     let buffered = 0;
     for (let i = 0; i < a.buffered.length; i++) {
       if (a.buffered.start(i) <= current + 0.5 && a.buffered.end(i) >= current) buffered = a.buffered.end(i);
@@ -344,6 +357,7 @@ export function createPlayer(): Player {
   /** Segundo en el que está (o estará, si hay un salto pendiente) el elemento. */
   const positionOf = (el: HTMLMediaElement | null): number => {
     if (resumeAt !== null) return resumeAt;
+    if (pendingAt !== null) return pendingAt;
     if (el && el.readyState > 0 && el.currentTime > 0) return el.currentTime;
     return lastTime;
   };
@@ -441,6 +455,7 @@ export function createPlayer(): Player {
     resumePlay = false;
     resumeAt = null;
     lastTime = at;
+    pendingAt = at > 0 ? at : null;
     const codec = state.codec ?? codecFor(track.preview, state.caps);
     // primero el modo: los eventos del elemento que se vacía ya no cuentan
     emit({ type: 'mode', mode: next, status: play ? 'loading' : 'paused' });
@@ -459,6 +474,7 @@ export function createPlayer(): Player {
     const track = fresh(input);
     abortProbe();
     clearBudgetTimer();
+    pendingAt = null;
     const prev = state.mode;
     const codec = codecFor(track.preview, state.caps);
     if (!codec) {
@@ -571,6 +587,7 @@ export function createPlayer(): Player {
     retryBudget = 1;
     switchedCodec = false;
     const at = lastTime > 0 ? lastTime : 0;
+    pendingAt = at > 0 ? at : null;
     emit({ type: 'load', track, codec, mode });
     if (prev !== mode) stopMode(prev);
     begin(mode, track, codec, at, true);
@@ -581,6 +598,7 @@ export function createPlayer(): Player {
     clearBudgetTimer();
     lastTime = 0;
     resumeAt = null;
+    pendingAt = null;
     resumePlay = false;
     const a = audio;
     emit({ type: 'close' });
@@ -598,9 +616,12 @@ export function createPlayer(): Player {
     lastTime = t;
     if (a.readyState === 0) {
       resumeAt = t;
+      // durante un cambio de modo la barra muestra el destino del salto
+      if (pendingAt !== null) pendingAt = t > 0 ? t : null;
       emitTime();
       return;
     }
+    pendingAt = null;
     if (fast && typeof a.fastSeek === 'function') a.fastSeek(t);
     else a.currentTime = t;
     emitTime();
@@ -772,6 +793,11 @@ export function createPlayer(): Player {
       if (mode === 'video' && !videoAvailable(t)) return;
       switchTo(mode, isRunning(state.status));
     },
+    warmVideo() {
+      if (!video || !state.videoCaps.mse) return;
+      // si falla (sin red), openVideoSource lo vuelve a intentar al entrar en video
+      loadHls().catch(() => undefined);
+    },
     play() {
       const t = state.track;
       if (t && (state.status === 'paused' || state.status === 'ended' || state.status === 'error')) toggle(t);
@@ -785,7 +811,8 @@ export function createPlayer(): Player {
     seekBy(delta) {
       const a = active();
       if (!a || !state.track) return;
-      seek((a.readyState === 0 ? lastTime : a.currentTime) + delta);
+      // mientras el elemento nuevo está en 0 la base es el segundo pendiente
+      seek((pendingAt ?? (a.readyState === 0 ? lastTime : a.currentTime)) + delta);
     },
     setVolume(v) {
       const a = audio;
@@ -847,6 +874,27 @@ export function usePlayerVideoCaps(p: Player | null): VideoCaps {
     p ? p.subscribe : noopSubscribe,
     () => p?.getState().videoCaps ?? NO_VIDEO_CAPS,
     () => NO_VIDEO_CAPS,
+  );
+}
+
+/** Modo que eligió el usuario (el que usa la miniatura de cada fila). */
+export function usePlayerPreferredMode(p: Player | null): PlayerMode {
+  return useSyncExternalStore(
+    p ? p.subscribe : noopSubscribe,
+    () => p?.getState().preferredMode ?? 'audio',
+    () => 'audio',
+  );
+}
+
+/** Modo de la pista `key` si es la actual, o null si no lo es. */
+export function usePlayerTrackMode(p: Player | null, key: string): PlayerMode | null {
+  return useSyncExternalStore(
+    p ? p.subscribe : noopSubscribe,
+    () => {
+      const s = p?.getState();
+      return s && s.track?.key === key ? s.mode : null;
+    },
+    () => null,
   );
 }
 

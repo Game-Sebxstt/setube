@@ -24,6 +24,8 @@ interface QueueProps {
   onRetryMeta: (videoId: string) => void;
   /** Muestra el botón de escuchar en cada fila. */
   preview: boolean;
+  /** Muestra la acción «Ver video» en las filas que lo admiten. */
+  previewVideo: boolean;
 }
 
 export function Queue({
@@ -41,6 +43,7 @@ export function Queue({
   metaFailed,
   onRetryMeta,
   preview,
+  previewVideo,
 }: QueueProps) {
   const count = state.items.length;
   const empty = count === 0 && state.playlists.length === 0;
@@ -87,6 +90,7 @@ export function Queue({
               onAddPlaylist={onAddPlaylist}
               onRetryMeta={onRetryMeta}
               preview={preview}
+              previewVideo={previewVideo}
             />
           ))}
         </ul>

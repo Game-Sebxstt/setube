@@ -50,7 +50,15 @@ import { type SearchState, SearchResults } from './SearchResults';
 import { Toaster, useToasts } from './Toaster';
 import { Player } from '@/components/player/Player';
 import { PlayerContext } from '@/components/player/PlayerContext';
-import { canPreview, canPreviewVideo, createPlayer, toTrack, usePlayerCaps, usePlayerVideoCaps } from '@/lib/player';
+import {
+  canPreview,
+  canPreviewVideo,
+  createPlayer,
+  toTrack,
+  usePlayerCaps,
+  usePlayerPreferredMode,
+  usePlayerVideoCaps,
+} from '@/lib/player';
 
 const MAX_ACTIVE_JOBS = 2;
 const RESOLVE_DEBOUNCE_MS = 200;
@@ -612,6 +620,30 @@ export function Converter() {
     if (current && !state.items.some((i) => i.key === current.key)) player.close();
   }, [player, tracks, state.items]);
 
+  // El video falló y siguió el audio: se avisa una vez por fallo.
+  useEffect(() => {
+    let last = player.getState().notice;
+    return player.subscribe(() => {
+      const notice = player.getState().notice;
+      if (notice === last) return;
+      last = notice;
+      if (notice) push(messageFor(notice, messageCtx), 'info');
+    });
+  }, [player, push, messageCtx]);
+
+  // Quien eligió ver video y tiene algo que ver: hls.js se descarga en un momento libre, antes del clic.
+  const preferredMode = usePlayerPreferredMode(player);
+  const anyVideo = tracks.some((t) => t.video);
+  useEffect(() => {
+    if (!anyVideo || preferredMode !== 'video') return;
+    if (typeof window.requestIdleCallback === 'function') {
+      const id = window.requestIdleCallback(() => player.warmVideo(), { timeout: 3000 });
+      return () => window.cancelIdleCallback(id);
+    }
+    const t = setTimeout(() => player.warmVideo(), 1500);
+    return () => clearTimeout(t);
+  }, [player, anyVideo, preferredMode]);
+
   const masterRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const el = masterRef.current;
@@ -762,6 +794,7 @@ export function Converter() {
             onAddPlaylist={addPlaylist}
             onExample={addExample}
             preview={previewOn}
+            previewVideo={videoOn}
           />
         </div>
       </div>

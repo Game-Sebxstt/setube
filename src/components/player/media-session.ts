@@ -2,8 +2,11 @@ import type { Player } from '@/lib/player';
 
 const SKIP_SEC = 10;
 
-/** Controles de la pantalla de bloqueo y de las teclas multimedia. Devuelve la limpieza. */
-export function bindMediaSession(player: Player, audio: HTMLAudioElement): () => void {
+/**
+ * Controles de la pantalla de bloqueo y de las teclas multimedia. Escucha el <audio> y el <video>, pero la
+ * posición sale siempre del elemento activo (`player.getMedia()`). Devuelve la limpieza.
+ */
+export function bindMediaSession(player: Player, elements: readonly HTMLMediaElement[]): () => void {
   if (typeof navigator === 'undefined' || !('mediaSession' in navigator)) return () => undefined;
   const ms = navigator.mediaSession;
 
@@ -17,12 +20,15 @@ export function bindMediaSession(player: Player, audio: HTMLAudioElement): () =>
 
   const position = () => {
     try {
-      const d = player.getTime().duration;
-      if (!player.getState().track || !d || !Number.isFinite(d) || d <= 0) return;
+      const media = player.getMedia();
+      const t = player.getTime();
+      const d = t.duration;
+      if (!media || !player.getState().track || !d || !Number.isFinite(d) || d <= 0) return;
       ms.setPositionState({
         duration: d,
-        playbackRate: audio.playbackRate || 1,
-        position: Math.min(Math.max(0, audio.currentTime || 0), d),
+        playbackRate: media.playbackRate || 1,
+        // mientras el elemento nuevo está en 0 (cambio de modo), el segundo publicado por el motor
+        position: Math.min(Math.max(0, media.currentTime > 0 ? media.currentTime : t.current), d),
       });
     } catch {
       // posición inválida durante un cambio de fuente
@@ -78,13 +84,21 @@ export function bindMediaSession(player: Player, audio: HTMLAudioElement): () =>
   };
 
   const events = ['durationchange', 'seeked', 'ratechange', 'playing', 'pause'] as const;
-  for (const e of events) audio.addEventListener(e, position);
+  const listeners = elements.map((el) => {
+    const h = () => {
+      if (el === player.getMedia()) position();
+    };
+    for (const e of events) el.addEventListener(e, h);
+    return () => {
+      for (const e of events) el.removeEventListener(e, h);
+    };
+  });
   const unsubscribe = player.subscribe(sync);
   sync();
 
   return () => {
     unsubscribe();
-    for (const e of events) audio.removeEventListener(e, position);
+    for (const off of listeners) off();
     for (const a of ['play', 'pause', 'stop', 'seekto', 'seekbackward', 'seekforward', 'previoustrack', 'nexttrack'] as const) {
       handle(a, null);
     }

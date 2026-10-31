@@ -572,6 +572,129 @@ describe('motor en modo video', () => {
     expect(video.muted).toBe(true);
   });
 
+  it('la posición publicada no vuelve a 0 durante un cambio de modo (audio → video → audio)', async () => {
+    const { p, audio, video } = setup();
+    p.toggle(track('a'));
+    audio.meta(120);
+    audio.fire('playing');
+    audio.tick(15);
+    const seen: number[] = [];
+    const off = p.subscribeTime(() => seen.push(p.getTime().current));
+    p.setMode('video');
+    expect(p.getTime().current).toBe(15);
+    await flush();
+    const h = lastHls();
+    h.emit('hlsManifestParsed');
+    // el <video> ya tiene cabecera pero hls.js aún no saltó: sigue publicándose el segundo 15
+    video.meta(120);
+    video.fire('progress');
+    expect(p.getTime().current).toBe(15);
+    video.tick(15.3);
+    expect(p.getTime().current).toBe(15.3);
+    p.setMode('audio');
+    expect(p.getTime().current).toBe(15.3);
+    audio.fire('emptied');
+    audio.fire('progress');
+    expect(p.getTime().current).toBe(15.3);
+    audio.meta(120);
+    expect(audio.currentTime).toBe(15.3);
+    audio.tick(15.6);
+    off();
+    expect(seen.every((t) => t >= 15)).toBe(true);
+    expect(seen.at(-1)).toBe(15.6);
+  });
+
+  it('seekBy durante el cambio de modo parte del segundo pendiente', async () => {
+    const { p, audio, video } = setup();
+    p.toggle(track('a'));
+    audio.meta(120);
+    audio.tick(15);
+    p.setMode('video');
+    p.seekBy(5);
+    expect(p.getTime().current).toBe(20);
+    await flush();
+    video.meta(120);
+    // el salto del usuario no es el `startPosition` de hls.js: lo aplica el motor
+    expect(video.currentTime).toBe(20);
+  });
+
+  it('seekBy en video avanza desde el segundo del <video>', async () => {
+    const { p, video } = setup();
+    p.toggle(track('a'), 'video');
+    await flush();
+    video.meta(120);
+    video.tick(30);
+    p.seekBy(10);
+    expect(video.currentTime).toBe(40);
+    p.seekBy(-50);
+    expect(video.currentTime).toBe(0);
+  });
+
+  it('step desde video a una pista sin video sigue en audio y destruye hls.js', async () => {
+    const { p, audio } = setup();
+    p.setQueue([track('a'), track('b', { video: false })]);
+    p.toggle(track('a'), 'video');
+    await flush();
+    const h = lastHls();
+    p.step(1);
+    expect(p.getState().track?.key).toBe('b');
+    expect(p.getState().mode).toBe('audio');
+    expect(h.destroyed).toBe(true);
+    expect(audio.src).toContain('/audio?codec=aac');
+    expect(audio.playCalls).toBe(1);
+  });
+
+  it('HLS nativo dentro del motor: arranca en el segundo pedido al leer la cabecera', () => {
+    vi.stubGlobal('MediaSource', undefined);
+    const { p, audio, video } = setup({ [HLS_MIME]: 'maybe' });
+    expect(p.getState().videoCaps).toEqual({ mse: false, native: true });
+    p.toggle(track('a'));
+    audio.meta(120);
+    audio.fire('playing');
+    audio.tick(25);
+    p.setMode('video');
+    expect(video.src).toMatch(/\/hls\/master\.m3u8\?sid=/);
+    expect(video.playCalls).toBe(1);
+    expect(H.FakeHls.instances).toHaveLength(0);
+    video.meta(120);
+    expect(video.currentTime).toBe(25);
+  });
+
+  it.each([
+    ['MANIFEST_LOAD_TIMEOUT', { fatal: true, type: 'networkError', details: 'manifestLoadTimeOut' }],
+    ['OTHER_ERROR fatal', { fatal: true, type: 'otherError', details: 'internalException' }],
+  ])('%s vuelve al audio con aviso', async (_name, data) => {
+    const { p } = setup();
+    p.toggle(track('a'), 'video');
+    await flush();
+    const h = lastHls();
+    h.emit('hlsError', data);
+    await flush();
+    expect(h.startLoads).toEqual([]);
+    expect(p.getState().mode).toBe('audio');
+    expect(p.getState().notice).toBe('VIDEO_UNSUPPORTED');
+  });
+
+  it('warmVideo descarga hls.js antes del clic y la primera entrada en video va en el mismo gesto', async () => {
+    const { p, video } = setup();
+    p.warmVideo();
+    await flush();
+    expect(H.FakeHls.instances).toHaveLength(0);
+    p.toggle(track('a'), 'video');
+    // sin esperar: la fuente y play() ya están puestos
+    expect(H.FakeHls.instances).toHaveLength(1);
+    expect(video.playCalls).toBe(1);
+  });
+
+  it('warmVideo sin MSE no hace nada', async () => {
+    vi.stubGlobal('MediaSource', undefined);
+    const { p } = setup({ [HLS_MIME]: 'maybe' });
+    p.warmVideo();
+    await flush();
+    p.toggle(track('a'), 'video');
+    expect(H.FakeHls.instances).toHaveLength(0);
+  });
+
   it('getMedia devuelve el elemento activo', async () => {
     const { p, audio, video } = setup();
     expect(p.getMedia()).toBe(asAudio(audio));

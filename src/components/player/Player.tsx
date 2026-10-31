@@ -1,15 +1,13 @@
 'use client';
 
-import { LoaderCircle, Pause, Play, RotateCcw, SkipBack, SkipForward, Volume2, VolumeX, X } from 'lucide-react';
-import { type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, useEffect, useRef, useState } from 'react';
-import { Num } from '@/components/ui/Num';
-import { formatDuration } from '@/lib/format';
+import { LoaderCircle, MonitorPlay, Pause, Play, RotateCcw, SkipBack, SkipForward, X } from 'lucide-react';
+import { type KeyboardEvent as ReactKeyboardEvent, useCallback, useEffect, useRef } from 'react';
 import { type MessageContext, messageFor } from '@/lib/messages';
-import { type Player as PlayerEngine, type PlayerState, shouldHandleSpace, usePlayerState, usePlayerTime } from '@/lib/player';
+import { type Player as PlayerEngine, type PlayerState, shouldHandleSpace, usePlayerState } from '@/lib/player';
+import { SEEK_STEP, SeekBar, VolumeControl } from './controls';
+import { toggleFullscreen } from './fullscreen';
 import { bindMediaSession } from './media-session';
-
-const SEEK_STEP = 5;
-const SEEK_DEBOUNCE_MS = 250;
+import { VideoPanel } from './VideoPanel';
 
 interface PlayerProps {
   player: PlayerEngine;
@@ -21,7 +19,7 @@ function statusText(s: PlayerState, ctx: MessageContext): string {
   switch (s.status) {
     case 'loading':
     case 'buffering':
-      return 'Cargando audio…';
+      return s.mode === 'video' ? 'Cargando video…' : 'Cargando audio…';
     case 'playing':
       return `Reproduciendo ${s.track.title}`;
     case 'paused':
@@ -35,18 +33,28 @@ function statusText(s: PlayerState, ctx: MessageContext): string {
   }
 }
 
-/** Reproductor global: un único <audio> y la mini barra fija abajo. */
+const TYPING = 'input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"]';
+
+/** La tecla «f» no cuenta si el foco está en un campo donde se escribe. */
+function isTyping(target: EventTarget | null): boolean {
+  return target instanceof Element && target.closest(TYPING) !== null;
+}
+
+/** Reproductor global: un único <audio>, un único <video> (panel) y la mini barra fija abajo. */
 export function Player({ player, messageCtx }: PlayerProps) {
   const audioRef = useRef<HTMLAudioElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const frameRef = useRef<HTMLDivElement>(null);
   const barRef = useRef<HTMLElement>(null);
   const s = usePlayerState(player);
   const track = s.track;
 
   useEffect(() => {
     const a = audioRef.current;
+    const v = videoRef.current;
     if (!a) return;
-    const detach = player.attach(a);
-    const unbind = bindMediaSession(player, a);
+    const detach = player.attach(a, v);
+    const unbind = bindMediaSession(player, v ? [a, v] : [a]);
     return () => {
       unbind();
       detach();
@@ -72,17 +80,32 @@ export function Player({ player, messageCtx }: PlayerProps) {
     };
   }, [hasTrack]);
 
+  const fullscreen = useCallback(() => {
+    toggleFullscreen(frameRef.current, videoRef.current);
+    // el foco pasa al panel: espacio y flechas siguen funcionando sin pulsar el botón enfocado
+    frameRef.current?.focus({ preventScroll: true });
+  }, []);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== ' ' || e.repeat || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey || e.isComposing) return;
-      const t = player.getState().track;
-      if (!t || !shouldHandleSpace(e.target)) return;
-      e.preventDefault();
-      player.toggle(t);
+      if (e.repeat || e.ctrlKey || e.metaKey || e.altKey || e.isComposing) return;
+      const st = player.getState();
+      const t = st.track;
+      if (!t) return;
+      if (e.key === ' ' && !e.shiftKey) {
+        if (!shouldHandleSpace(e.target)) return;
+        e.preventDefault();
+        player.toggle(t);
+        return;
+      }
+      if ((e.key === 'f' || e.key === 'F') && st.mode === 'video' && !isTyping(e.target)) {
+        e.preventDefault();
+        fullscreen();
+      }
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [player]);
+  }, [player, fullscreen]);
 
   const onBarKey = (e: ReactKeyboardEvent<HTMLElement>) => {
     if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
@@ -97,10 +120,12 @@ export function Player({ player, messageCtx }: PlayerProps) {
   const active = busy || s.status === 'playing';
   const failed = s.status === 'error';
   const live = statusText(s, messageCtx);
+  const watching = s.mode === 'video';
 
   return (
     <>
       <audio ref={audioRef} preload="none" hidden />
+      <VideoPanel player={player} videoRef={videoRef} frameRef={frameRef} onFullscreen={fullscreen} />
       <p className="visually-hidden" aria-live="polite" aria-atomic="true">
         {live}
       </p>
@@ -129,7 +154,11 @@ export function Player({ player, messageCtx }: PlayerProps) {
                 {failed ? (
                   <span className="text-red-ink">{live}</span>
                 ) : busy ? (
-                  'Cargando…'
+                  watching ? (
+                    'Cargando video…'
+                  ) : (
+                    'Cargando…'
+                  )
                 ) : (
                   (track.author ?? 'YouTube')
                 )}
@@ -180,6 +209,21 @@ export function Player({ player, messageCtx }: PlayerProps) {
 
             {s.volumeControl ? <VolumeControl player={player} volume={s.volume} muted={s.muted} /> : null}
 
+            {track.video ? (
+              <button
+                type="button"
+                onClick={() => player.setMode(watching ? 'audio' : 'video')}
+                onPointerEnter={() => player.warmVideo()}
+                onFocus={() => player.warmVideo()}
+                aria-pressed={watching}
+                aria-label="Ver video"
+                title={watching ? 'Solo audio' : 'Ver video'}
+                className="inline-flex size-11 shrink-0 items-center justify-center rounded-control text-ink hover:bg-panel aria-pressed:text-red-ink"
+              >
+                <MonitorPlay aria-hidden="true" focusable="false" className="size-5" />
+              </button>
+            ) : null}
+
             <button
               type="button"
               onClick={() => player.close()}
@@ -193,87 +237,5 @@ export function Player({ player, messageCtx }: PlayerProps) {
         </section>
       ) : null}
     </>
-  );
-}
-
-function SeekBar({ player }: { player: PlayerEngine }) {
-  const time = usePlayerTime(player);
-  const [drag, setDrag] = useState<number | null>(null);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(
-    () => () => {
-      if (timer.current) clearTimeout(timer.current);
-    },
-    [],
-  );
-
-  const duration = time.duration;
-  const value = drag ?? time.current;
-  const pct = duration ? Math.min(100, (value / duration) * 100) : 0;
-  const buf = duration ? Math.min(100, (time.buffered / duration) * 100) : 0;
-  const durText = duration ? formatDuration(duration) : '–:–';
-  const curText = formatDuration(value) || '0:00';
-
-  const onChange = (v: number) => {
-    setDrag(v);
-    if (timer.current) clearTimeout(timer.current);
-    timer.current = setTimeout(() => {
-      timer.current = null;
-      player.seek(v);
-      setDrag(null);
-    }, SEEK_DEBOUNCE_MS);
-  };
-
-  return (
-    <div className="seek-wrap flex items-center gap-3 lg:min-w-0 lg:flex-1">
-      <Num className="hidden w-14 shrink-0 text-right text-sm lg:inline">{curText}</Num>
-      <input
-        type="range"
-        className="seek"
-        min={0}
-        max={duration ?? 0}
-        step={SEEK_STEP}
-        value={Math.min(value, duration ?? 0)}
-        disabled={!duration}
-        aria-label="Posición"
-        aria-valuetext={`${curText} de ${durText}`}
-        onChange={(e) => onChange(Number(e.target.value))}
-        style={{ '--pct': `${pct}%`, '--buf': `${buf}%` } as CSSProperties}
-      />
-      <Num className="hidden w-14 shrink-0 text-sm lg:inline">{durText}</Num>
-    </div>
-  );
-}
-
-function VolumeControl({ player, volume, muted }: { player: PlayerEngine; volume: number; muted: boolean }) {
-  const shown = muted ? 0 : volume;
-  return (
-    <div className="hidden shrink-0 items-center gap-1 lg:flex">
-      <button
-        type="button"
-        onClick={() => player.toggleMute()}
-        aria-label={muted || volume === 0 ? 'Activar sonido' : 'Silenciar'}
-        title={muted || volume === 0 ? 'Activar sonido' : 'Silenciar'}
-        className="inline-flex size-11 items-center justify-center rounded-control text-ink hover:bg-panel"
-      >
-        {muted || volume === 0 ? (
-          <VolumeX aria-hidden="true" focusable="false" className="size-5" />
-        ) : (
-          <Volume2 aria-hidden="true" focusable="false" className="size-5" />
-        )}
-      </button>
-      <input
-        type="range"
-        className="seek w-24"
-        min={0}
-        max={1}
-        step={0.05}
-        value={shown}
-        aria-label="Volumen"
-        aria-valuetext={`${Math.round(shown * 100)} %`}
-        onChange={(e) => player.setVolume(Number(e.target.value))}
-        style={{ '--pct': `${shown * 100}%`, '--buf': '0%' } as CSSProperties}
-      />
-    </div>
   );
 }

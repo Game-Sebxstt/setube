@@ -100,7 +100,7 @@
   }
   /* Los elementos enfocados no quedan bajo la barra master fija de móvil */
   :focus {
-    scroll-margin-bottom: calc(96px + var(--player-h, 0px));
+    scroll-margin-bottom: calc(96px + var(--player-h, 0px) + var(--video-h, 0px));
   }
   ::selection {
     background: var(--red);
@@ -676,27 +676,148 @@
     }
   }
 
-  /* Espacio inferior para la barra master (móvil) y el reproductor */
+  /* Espacio inferior para la barra master (móvil), el reproductor y el panel de video */
   .dock-pad {
-    padding-bottom: calc(var(--master-h, 8rem) + var(--player-h, 0px) + 1rem);
+    padding-bottom: calc(var(--master-h, 8rem) + var(--player-h, 0px) + var(--video-h, 0px) + 1rem);
   }
   .toaster {
-    bottom: calc(var(--master-h, 5rem) + var(--player-h, 0px) + 1rem);
+    bottom: calc(var(--master-h, 5rem) + var(--player-h, 0px) + var(--video-h, 0px) + 1rem);
   }
   .player-bar {
     bottom: var(--master-h, 0px);
   }
   @media (min-width: 64rem) {
     .dock-pad {
-      padding-bottom: calc(var(--player-h, 0px) + 3rem);
+      padding-bottom: calc(var(--player-h, 0px) + var(--video-h, 0px) + 3rem);
     }
     .toaster {
-      bottom: calc(var(--player-h, 0px) + 1.5rem);
+      bottom: calc(var(--player-h, 0px) + var(--video-h, 0px) + 1.5rem);
     }
     .player-bar {
       bottom: 0;
       padding-bottom: env(safe-area-inset-bottom);
     }
+  }
+
+  /* Panel de video: a todo el ancho sobre la barra en móvil, flotante a la derecha en escritorio */
+  .video-panel {
+    position: fixed;
+    z-index: 30;
+    left: 0;
+    right: 0;
+    bottom: calc(var(--master-h, 0px) + var(--player-h, 0px));
+    transition:
+      opacity 150ms ease-out,
+      transform 150ms ease-out,
+      visibility 0s linear 0s;
+  }
+  /* cerrado sigue maquetado (visibility): el <video> tiene tamaño al elegir la calidad de arranque */
+  .video-panel[data-open='false'] {
+    visibility: hidden;
+    opacity: 0;
+    transform: translateY(0.5rem);
+    pointer-events: none;
+    transition:
+      opacity 150ms ease-out,
+      transform 150ms ease-out,
+      visibility 0s linear 150ms;
+  }
+  .video-frame {
+    position: relative;
+    width: 100%;
+    height: min(56.25vw, 45dvh);
+    overflow: hidden;
+    border-top: 1px solid var(--line);
+    background: #000;
+    color: #fff;
+  }
+  /* el panel solo recibe el foco por código (tabindex -1) al entrar en pantalla completa: sin anillo */
+  .video-frame:focus-visible {
+    outline: none;
+  }
+  @media (min-width: 64rem) {
+    .video-panel {
+      left: auto;
+      right: 1.5rem;
+      bottom: calc(var(--player-h, 0px) + 1rem);
+      width: 480px;
+    }
+    /* único elemento que flota sobre el contenido: la sombra lo separa de lo que pasa por debajo */
+    .video-frame {
+      height: auto;
+      aspect-ratio: 16 / 9;
+      border: 1px solid var(--edge);
+      border-radius: var(--radius-panel);
+      box-shadow: 0 12px 32px rgb(0 0 0 / 0.35);
+    }
+  }
+  .video-frame:fullscreen {
+    width: 100%;
+    height: 100%;
+    aspect-ratio: auto;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+  .video-frame:-webkit-full-screen {
+    width: 100%;
+    height: 100%;
+    aspect-ratio: auto;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+  .video-center {
+    position: absolute;
+    inset: 0;
+    margin: auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 3.5rem;
+    height: 3.5rem;
+    border-radius: 9999px;
+    background: rgb(0 0 0 / 0.7);
+    pointer-events: none;
+  }
+  /* botones sobre el video: con ratón aparecen al pasar por encima; en táctil siempre */
+  .video-tools {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.5rem;
+    display: flex;
+    gap: 0.25rem;
+    opacity: 0;
+    transition: opacity 150ms ease-out;
+  }
+  .video-frame:hover .video-tools,
+  .video-frame:focus-within .video-tools,
+  .video-frame[data-fs='true'] .video-tools {
+    opacity: 1;
+  }
+  @media (hover: none) {
+    .video-tools {
+      opacity: 1;
+    }
+  }
+  .video-controls {
+    position: absolute;
+    inset-inline: 0;
+    bottom: 0;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.75rem 1.5rem max(0.75rem, env(safe-area-inset-bottom));
+    background: rgb(0 0 0 / 0.72);
+    transition: opacity 150ms ease-out;
+  }
+  /* en pantalla completa, tras un rato sin mover el ratón se ocultan controles y cursor */
+  .video-frame[data-fs='true'][data-idle='true'] {
+    cursor: none;
+  }
+  .video-frame[data-fs='true'][data-idle='true'] .video-tools,
+  .video-frame[data-fs='true'][data-idle='true'] .video-controls {
+    opacity: 0;
   }
 
   /* Barra de posición y volumen del reproductor */
