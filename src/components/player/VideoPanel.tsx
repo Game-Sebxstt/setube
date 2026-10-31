@@ -129,15 +129,44 @@ export function VideoPanel({ player, videoRef, frameRef, onFullscreen }: VideoPa
   // botón «Ver video» de la barra o, si la pista ya no tiene video, al de reproducir
   useEffect(() => {
     if (open) return;
+    const wasFs = isFrameFullscreen();
     exitFullscreenIfInside(frameRef.current);
     exitPictureInPicture(videoRef.current);
     if (!restoreFocus.current) return;
     restoreFocus.current = false;
-    const a = document.activeElement;
-    if (a && a !== document.body && !panelRef.current?.contains(a)) return;
-    const target =
-      document.querySelector<HTMLElement>('[data-focus-return="video"]') ?? document.querySelector<HTMLElement>('[data-focus-return="play"]');
-    target?.focus();
+    const restore = () => {
+      const a = document.activeElement;
+      if (a && a !== document.body && !panelRef.current?.contains(a)) return;
+      const target =
+        document.querySelector<HTMLElement>('[data-focus-return="video"]') ??
+        document.querySelector<HTMLElement>('[data-focus-return="play"]');
+      target?.focus();
+    };
+    if (!wasFs) {
+      restore();
+      return;
+    }
+    // La salida de pantalla completa es asíncrona y mientras el contenedor sigue en la capa superior el navegador
+    // no mueve el foco fuera de él: se espera al fullscreenchange (o a 1 s, por si no llega)
+    let done = false;
+    const finish = () => {
+      if (done || isFrameFullscreen()) return;
+      done = true;
+      off();
+      clearTimeout(timer);
+      restore();
+    };
+    const off = subscribeFullscreen(finish);
+    const timer = setTimeout(() => {
+      done = true;
+      off();
+      restore();
+    }, 1000);
+    return () => {
+      done = true;
+      off();
+      clearTimeout(timer);
+    };
   }, [open, frameRef, videoRef]);
 
   // al entrar en pantalla completa los controles se ven y empieza la cuenta; al salir no queda nada pendiente

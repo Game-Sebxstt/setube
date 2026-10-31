@@ -751,6 +751,23 @@
       box-shadow: 0 12px 32px rgb(0 0 0 / 0.35);
     }
   }
+  /* móvil en horizontal: a todo el ancho no quedaría casi nada de la página; flota a la derecha, 16:9, con el alto que
+     dejan las barras */
+  @media (width < 64rem) and (orientation: landscape) and (height < 32rem) {
+    .video-panel {
+      left: auto;
+      right: max(0.75rem, env(safe-area-inset-right));
+      bottom: calc(var(--master-h, 0px) + var(--player-h, 0px) + 0.5rem);
+      width: min(40vw, calc((100dvh - var(--master-h, 0px) - var(--player-h, 0px) - 1rem) * 16 / 9));
+    }
+    .video-frame {
+      height: auto;
+      aspect-ratio: 16 / 9;
+      border: 1px solid var(--edge);
+      border-radius: var(--radius-panel);
+      box-shadow: 0 12px 32px rgb(0 0 0 / 0.35);
+    }
+  }
   .video-frame:fullscreen {
     width: 100%;
     height: 100%;

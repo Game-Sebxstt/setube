@@ -135,6 +135,17 @@ export const HLS_CONFIG: Partial<HlsConfig> = {
   maxBufferLength: 30,
   maxMaxBufferLength: 60,
   backBufferLength: 30,
+  // Un segmento que la API rechaza ya pasó por sus reintentos contra YouTube (403/410 → UPSTREAM_FORBIDDEN, 502).
+  // Con los 6 reintentos por defecto (1 + 2 + 4 + 8 + 8 + 8 s) la imagen se quedaba ~30 s congelada antes de volver
+  // al audio; con estos son ~3,5 s. Los tiempos de espera son los de hls.js.
+  fragLoadPolicy: {
+    default: {
+      maxTimeToFirstByteMs: 10_000,
+      maxLoadTimeMs: 120_000,
+      timeoutRetry: { maxNumRetry: 4, retryDelayMs: 0, maxRetryDelayMs: 0 },
+      errorRetry: { maxNumRetry: 3, retryDelayMs: 500, maxRetryDelayMs: 2000 },
+    },
+  },
 };
 
 /** Tras una recuperación de media, otra antes de este plazo prueba `swapAudioCodec` y después se rinde. */
@@ -191,9 +202,13 @@ function clearElement(video: HTMLVideoElement): void {
   }
 }
 
-function isHttpClientError(data: ErrorData): boolean {
-  const code = data.response?.code ?? 0;
-  return code >= 400 && code < 500;
+/**
+ * La API respondió con un error (4xx o 5xx). hls.js ya hizo sus reintentos (`fragLoadPolicy`) y la API los suyos
+ * contra YouTube, así que otra ronda solo alarga el tiempo con la imagen congelada. Sin respuesta (código 0: corte
+ * de red, tiempo agotado) sí merece la pena otra ronda.
+ */
+function isHttpError(data: ErrorData): boolean {
+  return (data.response?.code ?? 0) >= 400;
 }
 
 /**
@@ -270,7 +285,7 @@ export function openVideoSource(video: HTMLVideoElement, caps: VideoCaps, opts: 
           data.details === ErrorDetails.MANIFEST_LOAD_ERROR ||
           data.details === ErrorDetails.MANIFEST_LOAD_TIMEOUT ||
           data.details === ErrorDetails.MANIFEST_PARSING_ERROR;
-        if (playlist || isHttpClientError(data) || netRetried) {
+        if (playlist || isHttpError(data) || netRetried) {
           fail(playlist ? 'load' : 'network');
           return;
         }

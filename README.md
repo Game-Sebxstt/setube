@@ -32,10 +32,10 @@ Este repo es solo el frontend. La conversión la hace la API (repo `api-setube`)
   - Controles del sistema con Media Session: título, canal y miniatura en la pantalla de bloqueo, con reproducir, pausar, adelantar, retroceder y pasar al video anterior o siguiente de la cola.
   - Teclado: `Espacio` reproduce o pausa cuando el foco no está en un campo o botón, y las flechas avanzan o retroceden 5 s con el foco dentro del reproductor.
   - Solo aparece si la API lo tiene activo (`preview` en `GET /api/config`) y para videos que no superan la duración máxima de audio.
-- Ver el video: "Ver video" en la fila o en la barra abre un panel con la imagen (flotante a la derecha en desktop, sobre la barra en móvil), con pantalla completa (`f` o doble clic), imagen en imagen y "Solo audio". Al cambiar entre audio y video sigue en el mismo segundo.
+- Ver el video: "Ver video" en la fila o en la barra abre un panel con la imagen (flotante a la derecha en desktop y en un móvil en horizontal, sobre la barra en móvil en vertical), con pantalla completa (`f` o doble clic), imagen en imagen y "Solo audio". Al cambiar entre audio y video sigue en el mismo segundo.
   - Llega por HLS desde la API (`GET /api/videos/:videoId/hls/master.m3u8`) con hls.js, que se descarga aparte solo cuando hace falta (al pasar por "Ver video", si ya elegiste video o si escuchas un video que se puede ver). Sin MSE usa el HLS nativo del navegador.
   - La calidad de arranque es la más alta que cabe en el panel y en el ancho de banda: el que midió el video anterior de la pestaña (`sessionStorage`, `setube_bwe`) o, la primera vez, la estimación del navegador. Después hls.js sube o baja de calidad según la red, sin cortes.
-  - Si el video no se puede reproducir, vuelve al audio en el mismo punto y lo avisa. Solo aparece si la API lo tiene activo (`previewVideo` en `GET /api/config`); los directos no se pueden ver.
+  - Si el video no se puede reproducir, vuelve al audio en el mismo punto y lo avisa. Un segmento que la API rechaza se reintenta 3 veces (unos 3,5 s) antes de volver al audio. Solo aparece si la API lo tiene activo (`previewVideo` en `GET /api/config`); los directos no se pueden ver.
 - Descarga con el gestor nativo del navegador: un video baja como archivo y dos o más como ZIP ("Descargar todo (ZIP)"). Cada fila se puede descargar, reintentar o quitar, la conversión en curso se puede cancelar y "Vaciar" la cola se puede deshacer.
 - Persistencia local en `localStorage`: links de la cola (`setube_urls`), formato y calidad (`setube_prefs`), búsquedas recientes (`setube_searches`), tema (`setube_theme`), volumen del reproductor (`setube_volume`) y si prefieres escuchar o ver el video (`setube_player_mode`).
 - Tema oscuro por defecto y claro opcional, aplicado antes del primer pintado para evitar el parpadeo.
@@ -104,6 +104,15 @@ Los límites (videos por tanda, duración máxima, calidades) y si se puede escu
 ```bash
 E2E_BASE_URL=http://127.0.0.1:3100 npx playwright test e2e/recent-searches.spec.ts
 ```
+
+`e2e/video-player.spec.ts` tampoco necesita la API: simula `/api/config`, `/api/resolve`, `/api/videos/:id`, los playlists HLS y `/media/:formatId` (con `Range`) a partir de las fixtures de `e2e/fixtures/video/` (10 s a 360p y 720p más el audio, generadas con ffmpeg; su README explica cómo regenerarlas). Prueba la reproducción, el salto, el cambio entre audio y video, la vuelta al audio cuando falla el video, axe, la pantalla completa y la disposición en móvil. Va en Google Chrome (`channel: 'chrome'`), porque el Chromium de Playwright no trae H.264 ni AAC. Con `next dev` hace falta `--webpack` (con Turbopack, `next/font/google` falla y la página da 500):
+
+```bash
+NEXT_PUBLIC_API_URL=http://127.0.0.1:4100 npx next dev --webpack -p 3100 -H 127.0.0.1
+E2E_BASE_URL=http://127.0.0.1:3100 npx playwright test e2e/video-player.spec.ts
+```
+
+`NEXT_PUBLIC_API_URL` puede apuntar a un puerto sin nada escuchando: el spec responde todas las rutas `/api/`.
 
 `e2e/smoke.spec.ts` sí necesita la API real.
 

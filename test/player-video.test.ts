@@ -532,6 +532,16 @@ describe('motor en modo video', () => {
     await flush();
     expect(h.startLoads).toEqual([]);
     expect(p.getState().mode).toBe('audio');
+
+    // 502 UPSTREAM_FORBIDDEN: la API ya agotó su escalera contra YouTube y hls.js sus reintentos
+    p.setMode('video');
+    await flush();
+    const h2 = lastHls();
+    h2.emit('hlsError', { fatal: true, type: 'networkError', details: 'fragLoadError', response: { code: 502 } });
+    await flush();
+    expect(h2.startLoads).toEqual([]);
+    expect(p.getState().mode).toBe('audio');
+    expect(p.getState().notice).toBe('VIDEO_UNSUPPORTED');
   });
 
   it('errores de media: recoverMediaError, después swapAudioCodec y al tercero vuelve al audio', async () => {
