@@ -50,7 +50,7 @@ import { type SearchState, SearchResults } from './SearchResults';
 import { Toaster, useToasts } from './Toaster';
 import { Player } from '@/components/player/Player';
 import { PlayerContext } from '@/components/player/PlayerContext';
-import { canPreview, createPlayer, toTrack, usePlayerCaps } from '@/lib/player';
+import { canPreview, canPreviewVideo, createPlayer, toTrack, usePlayerCaps, usePlayerVideoCaps } from '@/lib/player';
 
 const MAX_ACTIVE_JOBS = 2;
 const RESOLVE_DEBOUNCE_MS = 200;
@@ -592,11 +592,18 @@ export function Converter() {
 
   const [player] = useState(createPlayer);
   const previewOn = config.preview === true;
+  const videoOn = previewOn && config.previewVideo === true;
   const caps = usePlayerCaps(player);
+  const videoCaps = usePlayerVideoCaps(player);
   const maxAudio = config.maxDurationAudioSec;
   const tracks = useMemo(
-    () => (previewOn ? state.items.filter((i) => canPreview(i, maxAudio, caps)).map(toTrack) : []),
-    [state.items, previewOn, maxAudio, caps],
+    () =>
+      previewOn
+        ? state.items
+            .filter((i) => canPreview(i, maxAudio, caps))
+            .map((i) => toTrack(i, videoOn && canPreviewVideo(i, maxAudio, videoCaps)))
+        : [],
+    [state.items, previewOn, videoOn, maxAudio, caps, videoCaps],
   );
   useEffect(() => {
     player.setQueue(tracks);

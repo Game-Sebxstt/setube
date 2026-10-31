@@ -64,6 +64,7 @@ export const MESSAGES: Record<ErrorCode, Message> = {
   DOWNLOAD_BLOCKED: 'Tu navegador pudo bloquear la descarga. Permite las descargas múltiples para este sitio.',
   PLAYER_ERROR: 'No se pudo reproducir el audio.',
   PLAYER_UNSUPPORTED: 'Tu navegador no puede reproducir este audio.',
+  VIDEO_UNSUPPORTED: 'No se pudo reproducir el video. Cambiamos a solo audio.',
   UNKNOWN: 'Ocurrió un error inesperado. Intenta de nuevo.',
 };
 

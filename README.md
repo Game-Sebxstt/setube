@@ -37,7 +37,7 @@ Este repo es solo el frontend. La conversión la hace la API (repo `api-setube`)
 - Tema oscuro por defecto y claro opcional, aplicado antes del primer pintado para evitar el parpadeo.
 - Accesibilidad: controles nativos (radios, fieldsets, botones con `aria-pressed`), anuncios `aria-live` cuando terminan las conversiones, avisos que se pausan con el foco y objetivos táctiles de 44 px.
 - SEO: metadatos, Open Graph y Twitter con imagen generada, JSON-LD, `robots.txt` y `sitemap.xml`. FAQ estática renderizada en el servidor.
-- Cabeceras de seguridad: CSP estricta (incluye la URL de la API en `connect-src` y `media-src`, y Turnstile solo si está configurado), `nosniff`, `Referrer-Policy` y `Permissions-Policy`.
+- Cabeceras de seguridad: CSP estricta (incluye la URL de la API en `connect-src` y `media-src`, `blob:` en `media-src` para el MediaSource del video y Turnstile solo si está configurado), `nosniff`, `Referrer-Policy` y `Permissions-Policy`.
 - Cloudflare Turnstile invisible opcional, activo solo si la API lo pide y hay site key.
 
 ## Stack

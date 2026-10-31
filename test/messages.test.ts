@@ -24,6 +24,12 @@ describe('messages', () => {
     expect(messageFor('UNKNOWN')).toBe('Ocurrió un error inesperado. Intenta de nuevo.');
   });
 
+  it('VIDEO_UNSUPPORTED es un código del cliente con su aviso', () => {
+    expect(CLIENT_ERROR_CODES).toContain('VIDEO_UNSUPPORTED');
+    expect(API_ERROR_CODES as readonly string[]).not.toContain('VIDEO_UNSUPPORTED');
+    expect(messageFor('VIDEO_UNSUPPORTED')).toBe('No se pudo reproducir el video. Cambiamos a solo audio.');
+  });
+
   it('RATE_LIMITED usa retryAfterSec y tiene copy de respaldo sin details', () => {
     expect(messageFor('RATE_LIMITED', { details: { retryAfterSec: 42 } })).toBe('Demasiadas solicitudes. Espera 42 s.');
     expect(messageFor('RATE_LIMITED')).toBe('Demasiadas solicitudes. Espera un momento.');

@@ -90,6 +90,10 @@ export type PreviewCodec = 'aac' | 'opus';
 export const previewUrl = (videoId: string, codec: PreviewCodec, sid: string) =>
   `${API_URL}/api/videos/${encodeURIComponent(videoId)}/audio?codec=${codec}&sid=${encodeURIComponent(sid)}`;
 
+/** Master HLS del video en streaming; el mismo `sid` que el audio (comparten hueco en la API). */
+export const hlsMasterUrl = (videoId: string, sid: string) =>
+  `${API_URL}/api/videos/${encodeURIComponent(videoId)}/hls/master.m3u8?sid=${encodeURIComponent(sid)}`;
+
 /** Pide el primer byte del audio para saber por qué falló el reproductor. Devuelve el Content-Type servido. */
 export async function previewProbe(videoId: string, codec: PreviewCodec, sid: string, signal?: AbortSignal): Promise<string> {
   let res: Response;

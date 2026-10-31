@@ -25,6 +25,15 @@ describe('buildCsp', () => {
     expect(csp).toMatch(/frame-src [^;]*https:\/\/challenges\.cloudflare\.com/);
   });
 
+  it('media-src admite blob: para el MediaSource del video, sin abrir worker-src', () => {
+    const csp = buildCsp({ isDev: false, apiUrl: 'https://api.setube.example', turnstile: false });
+    expect(csp).toContain("media-src 'self' blob: https://api.setube.example;");
+    expect(csp).not.toContain('worker-src');
+    expect(csp).toMatch(/script-src [^;]*/);
+    expect(csp.match(/script-src [^;]*/)?.[0]).not.toContain('blob:');
+    expect(buildCsp({ isDev: false, apiUrl: '', turnstile: false })).toContain("media-src 'self' blob:;");
+  });
+
   it('usa solo el origen de la API', () => {
     const csp = buildCsp({ isDev: false, apiUrl: 'https://api.example.com/base/', turnstile: false });
     expect(csp).toContain("connect-src 'self' https://api.example.com;");

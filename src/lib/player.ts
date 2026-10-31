@@ -1,9 +1,19 @@
 import { useSyncExternalStore } from 'react';
-import { ApiError, type PreviewCodec, previewProbe, previewUrl } from './api';
+import { ApiError, type PreviewCodec, hlsMasterUrl, previewProbe, previewUrl } from './api';
 import type { ErrorCode } from './contract';
 import type { QueueItem } from './queue';
-import { browserStorage, loadVolume, saveVolume } from './storage';
+import { browserStorage, loadPlayerMode, loadVolume, savePlayerMode, saveVolume } from './storage';
+import {
+  NO_VIDEO_CAPS,
+  type PlayerMode,
+  type VideoCaps,
+  type VideoSource,
+  detectVideoCaps,
+  hasVideo,
+  openVideoSource,
+} from './video-source';
 
+export type { PlayerMode, VideoCaps } from './video-source';
 export type Codec = PreviewCodec;
 export interface PreviewCaps {
   aac: boolean;
@@ -18,6 +28,8 @@ export interface Track {
   thumbnail: string;
   duration: number | null;
   preview: PreviewCaps;
+  /** La pista se puede ver en video (API con `previewVideo` y video compatible). */
+  video: boolean;
 }
 
 export type PlayerStatus = 'idle' | 'loading' | 'playing' | 'paused' | 'buffering' | 'ended' | 'error';
@@ -33,6 +45,13 @@ export interface PlayerState {
   /** El navegador deja cambiar el volumen desde la página (iOS no). */
   volumeControl: boolean;
   nav: { prev: boolean; next: boolean };
+  /** Modo del elemento activo: `<audio>` o `<video>`. Sin pista siempre es `audio`. */
+  mode: PlayerMode;
+  /** Modo que eligió el usuario; se usa al cargar una pista nueva si la pista lo admite. */
+  preferredMode: PlayerMode;
+  videoCaps: VideoCaps;
+  /** Aviso que no detiene la reproducción (p. ej. el video falló y sigue el audio). */
+  notice: ErrorCode | null;
 }
 
 export interface PlayerTime {
@@ -42,13 +61,16 @@ export interface PlayerTime {
 }
 
 export type PlayerEvent =
-  | { type: 'load'; track: Track; codec: Codec }
+  | { type: 'load'; track: Track; codec: Codec; mode?: PlayerMode }
   | { type: 'status'; status: PlayerStatus }
   | { type: 'fail'; code: ErrorCode; track?: Track }
   | { type: 'close' }
   | { type: 'volume'; volume: number; muted: boolean }
-  | { type: 'caps'; caps: PreviewCaps; volumeControl?: boolean }
-  | { type: 'nav'; nav: PlayerState['nav'] };
+  | { type: 'caps'; caps: PreviewCaps; volumeControl?: boolean; videoCaps?: VideoCaps }
+  | { type: 'nav'; nav: PlayerState['nav'] }
+  | { type: 'mode'; mode: PlayerMode; status?: PlayerStatus }
+  | { type: 'prefer'; mode: PlayerMode }
+  | { type: 'notice'; code: ErrorCode | null };
 
 const NO_CAPS: PreviewCaps = { aac: false, opus: false };
 const NO_NAV: PlayerState['nav'] = { prev: false, next: false };
@@ -63,13 +85,17 @@ export const INITIAL_PLAYER_STATE: PlayerState = {
   caps: NO_CAPS,
   volumeControl: false,
   nav: NO_NAV,
+  mode: 'audio',
+  preferredMode: 'audio',
+  videoCaps: NO_VIDEO_CAPS,
+  notice: null,
 };
 const ZERO_TIME: PlayerTime = { current: 0, buffered: 0, duration: null };
 
 export function playerReducer(s: PlayerState, e: PlayerEvent): PlayerState {
   switch (e.type) {
     case 'load':
-      return { ...s, track: e.track, codec: e.codec, status: 'loading', error: null };
+      return { ...s, track: e.track, codec: e.codec, status: 'loading', error: null, mode: e.mode ?? s.mode, notice: null };
     case 'status': {
       if (!s.track || s.status === e.status) return s;
       if (e.status === 'paused' && (s.status === 'ended' || s.status === 'error')) return s;
@@ -79,13 +105,31 @@ export function playerReducer(s: PlayerState, e: PlayerEvent): PlayerState {
     case 'fail':
       return { ...s, track: e.track ?? s.track, status: 'error', error: e.code };
     case 'close':
-      return s.track === null && s.status === 'idle' ? s : { ...s, track: null, status: 'idle', codec: null, error: null };
+      return s.track === null && s.status === 'idle' && s.mode === 'audio' && s.notice === null
+        ? s
+        : { ...s, track: null, status: 'idle', codec: null, error: null, mode: 'audio', notice: null };
     case 'volume':
       return s.volume === e.volume && s.muted === e.muted ? s : { ...s, volume: e.volume, muted: e.muted };
     case 'caps':
-      return { ...s, caps: e.caps, volumeControl: e.volumeControl ?? s.volumeControl };
+      return {
+        ...s,
+        caps: e.caps,
+        volumeControl: e.volumeControl ?? s.volumeControl,
+        videoCaps: e.videoCaps ?? s.videoCaps,
+      };
     case 'nav':
       return s.nav.prev === e.nav.prev && s.nav.next === e.nav.next ? s : { ...s, nav: e.nav };
+    case 'mode': {
+      // sin pista no hay elemento de video activo
+      const mode = s.track ? e.mode : 'audio';
+      const status = s.track && e.status ? e.status : s.status;
+      if (s.mode === mode && s.status === status) return s;
+      return { ...s, mode, status, error: status === s.status ? s.error : null, notice: null };
+    }
+    case 'prefer':
+      return s.preferredMode === e.mode ? s : { ...s, preferredMode: e.mode };
+    case 'notice':
+      return s.notice === e.code ? s : { ...s, notice: e.code };
   }
 }
 
@@ -106,7 +150,24 @@ export function canPreview(item: QueueItem, maxDurationAudioSec: number, caps: P
   );
 }
 
-export function toTrack(item: QueueItem): Track {
+/**
+ * La fila se puede ver en video: metadata completa, duración dentro del límite de la escucha,
+ * alguna calidad de video, audio AAC (el grupo de audio del HLS) y MSE o HLS nativo.
+ * Que la API tenga `previewVideo` lo comprueba quien llama.
+ */
+export function canPreviewVideo(item: QueueItem, maxDurationAudioSec: number, caps: VideoCaps): boolean {
+  return (
+    item.meta === 'full' &&
+    item.duration != null &&
+    item.duration > 0 &&
+    item.duration <= maxDurationAudioSec &&
+    (item.qualities?.length ?? 0) > 0 &&
+    item.preview?.aac === true &&
+    hasVideo(caps)
+  );
+}
+
+export function toTrack(item: QueueItem, video = false): Track {
   return {
     key: item.key,
     videoId: item.videoId,
@@ -115,6 +176,7 @@ export function toTrack(item: QueueItem): Track {
     thumbnail: item.thumbnail,
     duration: item.duration,
     preview: item.preview ?? NO_CAPS,
+    video,
   };
 }
 
@@ -155,14 +217,40 @@ function writeBad(c: Codec): void {
   }
 }
 
+function isRunning(s: PlayerStatus): boolean {
+  return s === 'playing' || s === 'buffering' || s === 'loading';
+}
+
+function clearMedia(el: HTMLMediaElement): void {
+  el.pause();
+  el.removeAttribute('src');
+  el.load();
+}
+
+/** Alto del panel de video en píxeles físicos, o null si aún no se ve. */
+function panelHeight(v: HTMLVideoElement): number | null {
+  const h = v.clientHeight;
+  if (!h || h <= 0) return null;
+  const dpr = typeof globalThis.devicePixelRatio === 'number' && globalThis.devicePixelRatio > 0 ? globalThis.devicePixelRatio : 1;
+  return Math.round(h * dpr);
+}
+
 export interface Player {
   getState(): PlayerState;
   subscribe(fn: () => void): () => void;
   getTime(): PlayerTime;
   subscribeTime(fn: () => void): () => void;
-  /** Conecta el único <audio> de la página; devuelve la desconexión. */
-  attach(audio: HTMLAudioElement): () => void;
-  toggle(track: Track): void;
+  /** Conecta el único <audio> y, si lo hay, el único <video> de la página; devuelve la desconexión. */
+  attach(audio: HTMLAudioElement, video?: HTMLVideoElement | null): () => void;
+  /** Elemento activo (el que suena), o null antes de `attach`. */
+  getMedia(): HTMLMediaElement | null;
+  /**
+   * Reproduce o pausa `track`. Con `mode`, la reproduce en ese modo: si ya es la actual en otro modo,
+   * cambia de modo en el mismo segundo y la reproduce.
+   */
+  toggle(track: Track, mode?: PlayerMode): void;
+  /** El usuario elige el modo: se guarda como preferido y, si hay pista, se cambia en el mismo segundo y estado. */
+  setMode(mode: PlayerMode): void;
   play(): void;
   pause(): void;
   retry(): void;
@@ -183,6 +271,10 @@ export function createPlayer(): Player {
   const listeners = new Set<() => void>();
   const timeListeners = new Set<() => void>();
   let audio: HTMLAudioElement | null = null;
+  let video: HTMLVideoElement | null = null;
+  let videoSource: VideoSource | null = null;
+  /** Segundo que se le pasó a hls.js como `startPosition`: ese salto ya lo hace hls.js. */
+  let hlsStart: number | null = null;
   let sid: string | null = null;
   let queue: readonly Track[] = [];
 
@@ -201,11 +293,14 @@ export function createPlayer(): Player {
     for (const fn of listeners) fn();
   };
 
-  const durationOf = (a: HTMLAudioElement): number | null =>
+  /** Elemento que suena; los eventos del otro no cuentan. */
+  const active = (): HTMLMediaElement | null => (state.mode === 'video' ? video : audio);
+
+  const durationOf = (a: HTMLMediaElement): number | null =>
     Number.isFinite(a.duration) && a.duration > 0 ? a.duration : (state.track?.duration ?? null);
 
   const emitTime = () => {
-    const a = audio;
+    const a = active();
     if (!a || !state.track) {
       if (time !== ZERO_TIME) {
         time = ZERO_TIME;
@@ -238,42 +333,154 @@ export function createPlayer(): Player {
     emit({ type: 'nav', nav: { prev: n.prev !== null, next: n.next !== null } });
   };
 
-  const startPlay = (a: HTMLAudioElement) => {
+  /** La versión de la cola manda: allí `video` refleja la config y las capacidades actuales. */
+  const fresh = (t: Track): Track => queue.find((q) => q.key === t.key) ?? t;
+
+  const videoAvailable = (t: Track): boolean => video !== null && fresh(t).video && hasVideo(state.videoCaps);
+
+  const modeFor = (t: Track, wanted: PlayerMode | undefined): PlayerMode =>
+    (wanted ?? state.preferredMode) === 'video' && videoAvailable(t) ? 'video' : 'audio';
+
+  /** Segundo en el que está (o estará, si hay un salto pendiente) el elemento. */
+  const positionOf = (el: HTMLMediaElement | null): number => {
+    if (resumeAt !== null) return resumeAt;
+    if (el && el.readyState > 0 && el.currentTime > 0) return el.currentTime;
+    return lastTime;
+  };
+
+  const startPlay = (a: HTMLMediaElement) => {
     const p = a.play();
     if (!p) return;
     p.catch((err: unknown) => {
       const name = err instanceof DOMException ? err.name : '';
       // NotAllowedError: el navegador exige un gesto; AbortError: se cambió la fuente a mitad
-      if (name === 'NotAllowedError') emit({ type: 'status', status: 'paused' });
+      if (name === 'NotAllowedError' && a === active()) emit({ type: 'status', status: 'paused' });
     });
   };
 
-  const setSource = (a: HTMLAudioElement, track: Track, codec: Codec) => {
+  const ensureSid = (): string => {
     if (!sid) sid = crypto.randomUUID().replaceAll('-', '');
-    a.src = previewUrl(track.videoId, codec, sid);
+    return sid;
   };
 
-  const load = (track: Track) => {
+  const setSource = (a: HTMLAudioElement, track: Track, codec: Codec) => {
+    a.src = previewUrl(track.videoId, codec, ensureSid());
+  };
+
+  const stopVideo = () => {
+    const src = videoSource;
+    videoSource = null;
+    hlsStart = null;
+    src?.destroy();
+  };
+
+  /** Deja el elemento de `mode` vacío y en pausa. */
+  const stopMode = (mode: PlayerMode) => {
+    if (mode === 'video') stopVideo();
+    else if (audio) clearMedia(audio);
+  };
+
+  /** El video no se puede reproducir: vuelve al audio en el mismo punto y avisa. */
+  const videoFailed = (src: VideoSource) => {
+    if (videoSource !== src || state.mode !== 'video' || !state.track) return;
+    switchTo('audio', isRunning(state.status));
+    emit({ type: 'notice', code: 'VIDEO_UNSUPPORTED' });
+  };
+
+  const startVideo = (track: Track, at: number, play: boolean) => {
+    const v = video;
+    if (!v) return;
+    stopVideo();
+    const startAt = at > 0 ? at : null;
+    resumeAt = startAt;
+    const src: VideoSource = openVideoSource(v, state.videoCaps, {
+      url: hlsMasterUrl(track.videoId, ensureSid()),
+      startPosition: at,
+      targetHeight: panelHeight(v),
+      onFatal: () => videoFailed(src),
+    });
+    videoSource = src;
+    if (src.kind === 'hls') hlsStart = startAt;
+    if (src.kind !== null) {
+      // fuente puesta en el mismo gesto (HLS nativo o hls.js ya cargado)
+      if (play) startPlay(v);
+      return;
+    }
+    void src.ready.then((ok) => {
+      if (!ok || videoSource !== src || state.mode !== 'video') return;
+      if (src.kind === 'hls') hlsStart = startAt;
+      // si el usuario pausó mientras se cargaba hls.js, no se arranca
+      if (play && isRunning(state.status)) startPlay(v);
+    });
+  };
+
+  /** Pone la fuente de `mode` en `at` y la arranca si `play`. */
+  const begin = (mode: PlayerMode, track: Track, codec: Codec, at: number, play: boolean) => {
+    if (mode === 'video') {
+      startVideo(track, at, play);
+      return;
+    }
     const a = audio;
     if (!a) return;
+    setSource(a, track, codec);
+    resumeAt = at > 0 ? at : null;
+    if (play) startPlay(a);
+  };
+
+  /** Cambia de elemento conservando el segundo; `play` decide si sigue sonando. */
+  const switchTo = (next: PlayerMode, play: boolean) => {
+    const track = state.track;
+    if (!track || !audio || next === state.mode) return;
+    const prev = state.mode;
+    const ended = state.status === 'ended';
+    const at = ended ? 0 : positionOf(active());
     abortProbe();
     clearBudgetTimer();
+    retryBudget = 1;
+    switchedCodec = false;
+    resumePlay = false;
+    resumeAt = null;
+    lastTime = at;
+    const codec = state.codec ?? codecFor(track.preview, state.caps);
+    // primero el modo: los eventos del elemento que se vacía ya no cuentan
+    emit({ type: 'mode', mode: next, status: play ? 'loading' : 'paused' });
+    stopMode(prev);
+    if (!codec && next === 'audio') {
+      emit({ type: 'fail', code: 'PLAYER_UNSUPPORTED' });
+      return;
+    }
+    begin(next, track, codec ?? 'aac', at, play);
+    emitTime();
+  };
+
+  const load = (input: Track, wanted?: PlayerMode) => {
+    const a = audio;
+    if (!a) return;
+    const track = fresh(input);
+    abortProbe();
+    clearBudgetTimer();
+    const prev = state.mode;
     const codec = codecFor(track.preview, state.caps);
     if (!codec) {
+      if (prev === 'video') {
+        emit({ type: 'mode', mode: 'audio' });
+        stopVideo();
+      }
       emit({ type: 'fail', code: 'PLAYER_UNSUPPORTED', track });
       updateNav();
       return;
     }
+    const mode = modeFor(track, wanted);
     retryBudget = 1;
     switchedCodec = false;
     lastTime = 0;
     resumeAt = null;
     resumePlay = false;
-    emit({ type: 'load', track, codec });
+    emit({ type: 'load', track, codec, mode });
+    if (prev !== mode) stopMode(prev);
     updateNav();
     emitTime();
-    setSource(a, track, codec);
-    startPlay(a);
+    begin(mode, track, codec, 0, true);
   };
 
   const markUnsupported = (c: Codec) => {
@@ -301,13 +508,14 @@ export function createPlayer(): Player {
     emit({ type: 'fail', code: 'PLAYER_UNSUPPORTED' });
   };
 
+  /** Recuperación del <audio> (el <video> la hace en video-source). */
   const recover = () => {
     const a = audio;
     const track = state.track;
     const codec = state.codec;
     if (!a || !track || !codec) return;
     const mediaCode = a.error?.code ?? 0;
-    const wasPlaying = state.status === 'playing' || state.status === 'buffering' || state.status === 'loading';
+    const wasPlaying = isRunning(state.status);
     const at = a.currentTime > 0 ? a.currentTime : lastTime;
     clearBudgetTimer();
 
@@ -349,20 +557,23 @@ export function createPlayer(): Player {
 
   const retry = () => {
     const a = audio;
-    const track = state.track;
-    if (!a || !track) return;
+    const current = state.track;
+    if (!a || !current) return;
+    const track = fresh(current);
     abortProbe();
     const codec = codecFor(track.preview, state.caps);
     if (!codec) {
       emit({ type: 'fail', code: 'PLAYER_UNSUPPORTED' });
       return;
     }
+    const prev = state.mode;
+    const mode = prev === 'video' && videoAvailable(track) ? 'video' : 'audio';
     retryBudget = 1;
     switchedCodec = false;
-    resumeAt = lastTime > 0 ? lastTime : null;
-    emit({ type: 'load', track, codec });
-    setSource(a, track, codec);
-    startPlay(a);
+    const at = lastTime > 0 ? lastTime : 0;
+    emit({ type: 'load', track, codec, mode });
+    if (prev !== mode) stopMode(prev);
+    begin(mode, track, codec, at, true);
   };
 
   const close = () => {
@@ -370,19 +581,17 @@ export function createPlayer(): Player {
     clearBudgetTimer();
     lastTime = 0;
     resumeAt = null;
+    resumePlay = false;
     const a = audio;
     emit({ type: 'close' });
     updateNav();
-    if (a) {
-      a.pause();
-      a.removeAttribute('src');
-      a.load();
-    }
+    stopVideo();
+    if (a) clearMedia(a);
     emitTime();
   };
 
   const seek = (sec: number, fast = false) => {
-    const a = audio;
+    const a = active();
     if (!a || !state.track) return;
     const d = durationOf(a);
     const t = Math.max(0, d ? Math.min(sec, d) : sec);
@@ -397,13 +606,19 @@ export function createPlayer(): Player {
     emitTime();
   };
 
-  const toggle = (track: Track) => {
-    const a = audio;
-    if (!a) return;
+  const toggle = (input: Track, mode?: PlayerMode) => {
+    if (!audio) return;
+    const track = fresh(input);
     if (state.track?.key !== track.key) {
-      load(track);
+      load(track, mode);
       return;
     }
+    if (mode && mode !== state.mode && (mode === 'audio' || videoAvailable(track))) {
+      switchTo(mode, true);
+      return;
+    }
+    const a = active();
+    if (!a) return;
     switch (state.status) {
       case 'playing':
       case 'buffering':
@@ -431,23 +646,31 @@ export function createPlayer(): Player {
         startPlay(a);
         return;
       case 'idle':
-        load(track);
+        load(track, mode);
     }
   };
 
-  const onEvent: Record<string, (a: HTMLAudioElement) => void> = {
+  const onEvent: Record<string, (a: HTMLMediaElement) => void> = {
     loadedmetadata: (a) => {
       const track = state.track;
       if (!track) return;
       // sin duración ni seek, el contenedor no está bien soportado en este navegador
-      if ((track.duration ?? 0) > 0 && (!Number.isFinite(a.duration) || a.seekable.length === 0) && state.codec) {
+      if (
+        state.mode === 'audio' &&
+        (track.duration ?? 0) > 0 &&
+        (!Number.isFinite(a.duration) || a.seekable.length === 0) &&
+        state.codec
+      ) {
         switchCodec(state.codec);
         return;
       }
       if (resumeAt !== null) {
-        a.currentTime = Math.min(resumeAt, Number.isFinite(a.duration) ? a.duration : resumeAt);
+        // el salto a `startPosition` ya lo hace hls.js; uno posterior del usuario sí se aplica aquí
+        const byHls = state.mode === 'video' && videoSource?.kind === 'hls' && hlsStart === resumeAt;
+        if (!byHls) a.currentTime = Math.min(resumeAt, Number.isFinite(a.duration) ? a.duration : resumeAt);
         resumeAt = null;
       }
+      hlsStart = null;
       if (resumePlay) {
         resumePlay = false;
         if (a.paused) startPlay(a);
@@ -475,7 +698,8 @@ export function createPlayer(): Player {
       emit({ type: 'status', status: 'ended' });
     },
     error: () => {
-      if (state.track && state.status !== 'error') recover();
+      // los errores del <video> los gestiona video-source (hls.js o HLS nativo)
+      if (state.mode === 'audio' && state.track && state.status !== 'error') recover();
     },
     timeupdate: (a) => {
       if (a.currentTime > 0) lastTime = a.currentTime;
@@ -488,6 +712,15 @@ export function createPlayer(): Player {
     volumechange: (a) => emit({ type: 'volume', volume: a.volume, muted: a.muted }),
   };
 
+  const bind = (el: HTMLMediaElement) =>
+    Object.entries(onEvent).map(([name, fn]) => {
+      const h = () => {
+        if (el === active()) fn(el);
+      };
+      el.addEventListener(name, h);
+      return () => el.removeEventListener(name, h);
+    });
+
   return {
     getState: () => state,
     subscribe(fn) {
@@ -499,15 +732,18 @@ export function createPlayer(): Player {
       timeListeners.add(fn);
       return () => timeListeners.delete(fn);
     },
-    attach(a) {
+    attach(a, v = null) {
       audio = a;
-      if (!sid) sid = crypto.randomUUID().replaceAll('-', '');
-      const saved = loadVolume(browserStorage());
+      video = v;
+      ensureSid();
+      const storage = browserStorage();
+      const saved = loadVolume(storage);
       let volumeControl = false;
       try {
         a.volume = 0.5;
         volumeControl = Math.abs(a.volume - 0.5) < 0.01;
         a.volume = saved;
+        if (v) v.volume = saved;
       } catch {
         volumeControl = false;
       }
@@ -515,32 +751,39 @@ export function createPlayer(): Player {
         aac: a.canPlayType(MIME.aac) !== '' && !readBad('aac'),
         opus: a.canPlayType(MIME.opus) !== '' && !readBad('opus'),
       };
-      emit({ type: 'caps', caps, volumeControl });
+      emit({ type: 'caps', caps, volumeControl, videoCaps: detectVideoCaps(v) });
+      emit({ type: 'prefer', mode: loadPlayerMode(storage) });
       emit({ type: 'volume', volume: a.volume, muted: a.muted });
-      const bound = Object.entries(onEvent).map(([name, fn]) => {
-        const h = () => fn(a);
-        a.addEventListener(name, h);
-        return [name, h] as const;
-      });
+      const unbind = [...bind(a), ...(v ? bind(v) : [])];
       return () => {
         close();
-        for (const [name, h] of bound) a.removeEventListener(name, h);
+        for (const off of unbind) off();
         if (audio === a) audio = null;
+        if (video === v) video = null;
       };
     },
+    getMedia: active,
     toggle,
+    setMode(mode) {
+      savePlayerMode(browserStorage(), mode);
+      emit({ type: 'prefer', mode });
+      const t = state.track;
+      if (!t || mode === state.mode) return;
+      if (mode === 'video' && !videoAvailable(t)) return;
+      switchTo(mode, isRunning(state.status));
+    },
     play() {
       const t = state.track;
       if (t && (state.status === 'paused' || state.status === 'ended' || state.status === 'error')) toggle(t);
     },
     pause() {
       const t = state.track;
-      if (t && (state.status === 'playing' || state.status === 'buffering' || state.status === 'loading')) toggle(t);
+      if (t && isRunning(state.status)) toggle(t);
     },
     retry,
     seek,
     seekBy(delta) {
-      const a = audio;
+      const a = active();
       if (!a || !state.track) return;
       seek((a.readyState === 0 ? lastTime : a.currentTime) + delta);
     },
@@ -548,15 +791,22 @@ export function createPlayer(): Player {
       const a = audio;
       if (!a) return;
       const vol = Math.min(1, Math.max(0, v));
-      a.volume = vol;
-      if (vol > 0 && a.muted) a.muted = false;
+      for (const el of [a, video]) {
+        if (!el) continue;
+        el.volume = vol;
+        if (vol > 0 && el.muted) el.muted = false;
+      }
       saveVolume(browserStorage(), vol);
     },
     toggleMute() {
-      const a = audio;
+      const a = active();
       if (!a) return;
-      a.muted = !a.muted;
-      if (!a.muted && a.volume === 0) a.volume = 1;
+      const muted = !a.muted;
+      for (const el of [audio, video]) {
+        if (!el) continue;
+        el.muted = muted;
+        if (!muted && el.volume === 0) el.volume = 1;
+      }
     },
     close,
     setQueue(tracks) {
@@ -566,7 +816,8 @@ export function createPlayer(): Player {
     step(dir) {
       const n = neighbors(queue, state.track?.key ?? null);
       const t = dir < 0 ? n.prev : n.next;
-      if (t) load(t);
+      // quien está viendo video sigue en video si la siguiente lo admite
+      if (t) load(t, state.mode === 'video' ? 'video' : undefined);
     },
     markUnsupported,
   };
@@ -588,6 +839,14 @@ export function usePlayerCaps(p: Player | null): PreviewCaps {
     p ? p.subscribe : noopSubscribe,
     () => p?.getState().caps ?? NO_CAPS,
     () => NO_CAPS,
+  );
+}
+
+export function usePlayerVideoCaps(p: Player | null): VideoCaps {
+  return useSyncExternalStore(
+    p ? p.subscribe : noopSubscribe,
+    () => p?.getState().videoCaps ?? NO_VIDEO_CAPS,
+    () => NO_VIDEO_CAPS,
   );
 }
 

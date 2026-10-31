@@ -5,6 +5,7 @@ export const PREFS_KEY = 'setube_prefs';
 export const THEME_KEY = 'setube_theme';
 export const VOLUME_KEY = 'setube_volume';
 export const SEARCHES_KEY = 'setube_searches';
+export const PLAYER_MODE_KEY = 'setube_player_mode';
 
 /** Búsquedas recientes que se recuerdan, de la más reciente a la más antigua. */
 export const MAX_RECENT_SEARCHES = 8;
@@ -105,6 +106,16 @@ export function loadVolume(s: StorageLike | null | undefined): number {
 }
 export function saveVolume(s: StorageLike | null | undefined, v: number): void {
   safeSet(s, VOLUME_KEY, String(Math.round(Math.min(1, Math.max(0, v)) * 100) / 100));
+}
+
+export type PlayerModePref = 'audio' | 'video';
+
+/** Modo preferido del reproductor; cualquier otro valor vuelve a `audio`. */
+export function loadPlayerMode(s: StorageLike | null | undefined): PlayerModePref {
+  return safeGet(s, PLAYER_MODE_KEY) === 'video' ? 'video' : 'audio';
+}
+export function savePlayerMode(s: StorageLike | null | undefined, m: PlayerModePref): void {
+  safeSet(s, PLAYER_MODE_KEY, m === 'video' ? 'video' : 'audio');
 }
 
 /** Consulta en una sola línea con espacios colapsados; `null` si queda vacía o pasa del límite. */

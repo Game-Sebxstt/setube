@@ -39,7 +39,14 @@ export const API_ERROR_CODES = [
 ] as const;
 
 export type ApiErrorCode = (typeof API_ERROR_CODES)[number];
-export const CLIENT_ERROR_CODES = ['NETWORK_ERROR', 'DOWNLOAD_BLOCKED', 'PLAYER_ERROR', 'PLAYER_UNSUPPORTED', 'UNKNOWN'] as const;
+export const CLIENT_ERROR_CODES = [
+  'NETWORK_ERROR',
+  'DOWNLOAD_BLOCKED',
+  'PLAYER_ERROR',
+  'PLAYER_UNSUPPORTED',
+  'VIDEO_UNSUPPORTED',
+  'UNKNOWN',
+] as const;
 export type ClientErrorCode = (typeof CLIENT_ERROR_CODES)[number];
 export type ErrorCode = ApiErrorCode | ClientErrorCode;
 
@@ -76,6 +83,8 @@ export interface PublicConfig {
   turnstile: boolean;
   /** Escucha en streaming habilitada en la API. */
   preview?: boolean;
+  /** Video en streaming (HLS) habilitado en la API. */
+  previewVideo?: boolean;
   /** Búsqueda de videos habilitada en la API (`GET /api/search`). */
   search?: boolean;
 }

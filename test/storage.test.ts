@@ -2,10 +2,12 @@ import { describe, expect, it } from 'vitest';
 import {
   MAX_RECENT_SEARCHES,
   MAX_SEARCH_LENGTH,
+  PLAYER_MODE_KEY,
   SEARCHES_KEY,
   type StorageLike,
   URLS_KEY,
   addRecentSearch,
+  loadPlayerMode,
   loadPrefs,
   loadRecentSearches,
   loadTheme,
@@ -13,6 +15,7 @@ import {
   parseRecentSearches,
   parseUrls,
   removeRecentSearch,
+  savePlayerMode,
   savePrefs,
   saveRecentSearches,
   saveUrls,
@@ -207,5 +210,32 @@ describe('búsquedas recientes', () => {
     saveRecentSearches(s, ['lofi']);
     expect(loadUrls(s)).toEqual(['https://youtu.be/jNQXAC9IVRw']);
     expect(loadTheme(s)).toBe('light');
+  });
+});
+
+describe('modo preferido del reproductor', () => {
+  it('por defecto es audio y guarda solo audio o video', () => {
+    const s = memory();
+    expect(loadPlayerMode(s)).toBe('audio');
+    savePlayerMode(s, 'video');
+    expect(s.data[PLAYER_MODE_KEY]).toBe('video');
+    expect(loadPlayerMode(s)).toBe('video');
+    savePlayerMode(s, 'audio');
+    expect(loadPlayerMode(s)).toBe('audio');
+  });
+
+  it('un valor desconocido o un storage roto vuelven a audio', () => {
+    expect(loadPlayerMode(memory({ [PLAYER_MODE_KEY]: 'VIDEO' }))).toBe('audio');
+    expect(loadPlayerMode(null)).toBe('audio');
+    const broken: StorageLike = {
+      getItem: () => {
+        throw new Error('SecurityError');
+      },
+      setItem: () => {
+        throw new Error('QuotaExceeded');
+      },
+    };
+    expect(loadPlayerMode(broken)).toBe('audio');
+    expect(() => savePlayerMode(broken, 'video')).not.toThrow();
   });
 });
