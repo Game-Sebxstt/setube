@@ -818,6 +818,8 @@
   .video-frame[data-fs='true'][data-idle='true'] .video-tools,
   .video-frame[data-fs='true'][data-idle='true'] .video-controls {
     opacity: 0;
+    /* ocultos no reciben clics: el primer toque solo los vuelve a mostrar */
+    pointer-events: none;
   }
 
   /* Barra de posición y volumen del reproductor */

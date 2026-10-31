@@ -886,6 +886,15 @@ export function usePlayerPreferredMode(p: Player | null): PlayerMode {
   );
 }
 
+/** true si la pista cargada se puede ver en video (suene en audio o en video). */
+export function usePlayerTrackHasVideo(p: Player | null): boolean {
+  return useSyncExternalStore(
+    p ? p.subscribe : noopSubscribe,
+    () => p?.getState().track?.video === true,
+    () => false,
+  );
+}
+
 /** Modo de la pista `key` si es la actual, o null si no lo es. */
 export function usePlayerTrackMode(p: Player | null, key: string): PlayerMode | null {
   return useSyncExternalStore(

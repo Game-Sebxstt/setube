@@ -57,6 +57,7 @@ import {
   toTrack,
   usePlayerCaps,
   usePlayerPreferredMode,
+  usePlayerTrackHasVideo,
   usePlayerVideoCaps,
 } from '@/lib/player';
 
@@ -631,18 +632,21 @@ export function Converter() {
     });
   }, [player, push, messageCtx]);
 
-  // Quien eligió ver video y tiene algo que ver: hls.js se descarga en un momento libre, antes del clic.
+  // Quien eligió ver video y tiene algo que ver, o ya escucha una pista que se puede ver: hls.js se descarga en un
+  // momento libre, antes del clic. En móvil no hay «pasar el ratón» y la primera vez costaría ~1 s en 4G lenta.
   const preferredMode = usePlayerPreferredMode(player);
+  const trackHasVideo = usePlayerTrackHasVideo(player);
   const anyVideo = tracks.some((t) => t.video);
+  const warm = anyVideo && (preferredMode === 'video' || trackHasVideo);
   useEffect(() => {
-    if (!anyVideo || preferredMode !== 'video') return;
+    if (!warm) return;
     if (typeof window.requestIdleCallback === 'function') {
       const id = window.requestIdleCallback(() => player.warmVideo(), { timeout: 3000 });
       return () => window.cancelIdleCallback(id);
     }
     const t = setTimeout(() => player.warmVideo(), 1500);
     return () => clearTimeout(t);
-  }, [player, anyVideo, preferredMode]);
+  }, [player, warm]);
 
   const masterRef = useRef<HTMLDivElement>(null);
   useEffect(() => {

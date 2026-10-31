@@ -3,6 +3,7 @@ import { type Player, type Track, canPreviewVideo, createPlayer, playerReducer, 
 import type { QueueItem } from '../src/lib/queue';
 import { PLAYER_MODE_KEY } from '../src/lib/storage';
 import {
+  BANDWIDTH_KEY,
   HLS_CONFIG,
   HLS_MIME,
   NO_VIDEO_CAPS,
@@ -163,6 +164,24 @@ describe('pickStartLevel', () => {
   it('con dos variantes de la misma altura toma la última (más bitrate)', () => {
     expect(pickStartLevel([{ height: 360 }, { height: 720 }, { height: 720 }], 720)).toBe(2);
   });
+  it('con ancho de banda medido no pasa del 70 % de lo medido', () => {
+    const rated = [
+      { height: 360, bitrate: 900_000, averageBitrate: 700_000 },
+      { height: 720, bitrate: 3_000_000, averageBitrate: 2_100_000 },
+      { height: 1080, bitrate: 7_500_000, averageBitrate: 5_100_000 },
+    ];
+    expect(pickStartLevel(rated, 1080, 20_000_000)).toBe(2);
+    expect(pickStartLevel(rated, 1080, 4_000_000)).toBe(1);
+    expect(pickStartLevel(rated, 1080, 1_600_000)).toBe(0);
+    // ni la más baja cabe: la más baja igualmente
+    expect(pickStartLevel(rated, 1080, 500_000)).toBe(0);
+    // sin tamaño del panel, solo el ancho de banda
+    expect(pickStartLevel(rated, null, 4_000_000)).toBe(1);
+    // el tamaño sigue mandando con mucho ancho de banda
+    expect(pickStartLevel(rated, 400, 50_000_000)).toBe(0);
+    // sin averageBitrate usa bitrate (BANDWIDTH)
+    expect(pickStartLevel([{ height: 360, bitrate: 900_000 }, { height: 720, bitrate: 3_000_000 }], 720, 4_000_000)).toBe(0);
+  });
 });
 
 describe('detectVideoCaps', () => {
@@ -315,6 +334,62 @@ describe('motor en modo video', () => {
     h.levels = [{ height: 360 }, { height: 480 }, { height: 720 }, { height: 1080 }];
     h.emit('hlsManifestParsed');
     expect(h.startLevel).toBe(1);
+  });
+
+  it('el ancho de banda medido en esta pestaña se guarda tras los fragmentos y el siguiente video arranca con él', async () => {
+    const session = memoryStorage();
+    vi.stubGlobal('window', { localStorage: local, sessionStorage: session });
+    const { p, video } = setup();
+    video.clientHeight = 270;
+    vi.stubGlobal('devicePixelRatio', 4);
+    p.toggle(track('a'), 'video');
+    await flush();
+    const first = lastHls() as InstanceType<typeof H.FakeHls> & { bandwidthEstimate?: number };
+    // sin medida previa: hls.js usa su valor por defecto y el arranque solo mira el tamaño
+    expect(first.config.abrEwmaDefaultEstimate).toBeUndefined();
+    first.levels = [
+      { height: 360, bitrate: 1_000_000, averageBitrate: 700_000 },
+      { height: 720, bitrate: 3_000_000, averageBitrate: 2_100_000 },
+      { height: 1080, bitrate: 7_500_000, averageBitrate: 5_100_000 },
+    ] as never;
+    first.emit('hlsManifestParsed');
+    expect(first.startLevel).toBe(2);
+    // antes de cargar ningún fragmento no se guarda nada (sería el valor por defecto, no una medida)
+    first.bandwidthEstimate = 500_000;
+    p.setMode('audio');
+    expect(session.data[BANDWIDTH_KEY]).toBeUndefined();
+    p.setMode('video');
+    await flush();
+    const second = lastHls() as typeof first;
+    second.bandwidthEstimate = 4_000_000;
+    second.emit('hlsFragBuffered');
+    expect(session.data[BANDWIDTH_KEY]).toBe('4000000');
+    p.close();
+    p.toggle(track('b'), 'video');
+    await flush();
+    const third = lastHls();
+    expect(third.config.abrEwmaDefaultEstimate).toBe(4_000_000);
+    third.levels = first.levels;
+    third.emit('hlsManifestParsed');
+    // 720p cabe en el panel (1080 px) y en el 70 % de 4 Mbit/s; 1080p no
+    expect(third.startLevel).toBe(1);
+  });
+
+  it('sin medida en la pestaña, la calidad de arranque usa navigator.connection.downlink (no el ABR)', async () => {
+    vi.stubGlobal('navigator', { connection: { downlink: 1.5 } });
+    const { p, video } = setup();
+    video.clientHeight = 270;
+    vi.stubGlobal('devicePixelRatio', 4);
+    p.toggle(track('a'), 'video');
+    await flush();
+    const h = lastHls();
+    expect(h.config.abrEwmaDefaultEstimate).toBeUndefined();
+    h.levels = [
+      { height: 360, bitrate: 1_000_000, averageBitrate: 700_000 },
+      { height: 720, bitrate: 3_000_000, averageBitrate: 2_100_000 },
+    ] as never;
+    h.emit('hlsManifestParsed');
+    expect(h.startLevel).toBe(0);
   });
 
   it('video → audio conserva el segundo y sigue sonando', async () => {

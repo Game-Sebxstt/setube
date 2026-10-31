@@ -33,7 +33,9 @@ function statusText(s: PlayerState, ctx: MessageContext): string {
   }
 }
 
-const TYPING = 'input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"]';
+// Campos de texto: la barra de posición y el volumen (type=range) o un checkbox no cuentan
+const TYPING =
+  'input:not([type="range"], [type="checkbox"], [type="radio"], [type="button"], [type="submit"], [type="reset"]), textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"]';
 
 /** La tecla «f» no cuenta si el foco está en un campo donde se escribe. */
 function isTyping(target: EventTarget | null): boolean {
@@ -179,6 +181,7 @@ export function Player({ player, messageCtx }: PlayerProps) {
               <button
                 type="button"
                 onClick={() => player.toggle(track)}
+                data-focus-return="play"
                 aria-label={failed ? 'Reintentar' : active ? 'Pausar' : 'Reproducir'}
                 title={failed ? 'Reintentar' : active ? 'Pausar' : 'Reproducir'}
                 className="inline-flex size-11 items-center justify-center rounded-full bg-red text-white hover:brightness-110"
@@ -215,6 +218,7 @@ export function Player({ player, messageCtx }: PlayerProps) {
                 onClick={() => player.setMode(watching ? 'audio' : 'video')}
                 onPointerEnter={() => player.warmVideo()}
                 onFocus={() => player.warmVideo()}
+                data-focus-return="video"
                 aria-pressed={watching}
                 aria-label="Ver video"
                 title={watching ? 'Solo audio' : 'Ver video'}

@@ -3,7 +3,7 @@ import Script from 'next/script';
 import type { ReactNode } from 'react';
 import { JsonLd } from '@/components/site/JsonLd';
 import { ThemeScript } from '@/components/site/ThemeScript';
-import { AUTHOR, SITE_DESCRIPTION, SITE_NAME, SITE_TITLE, SITE_URL, TURNSTILE_SITE_KEY } from '@/config/site';
+import { API_URL, AUTHOR, SITE_DESCRIPTION, SITE_NAME, SITE_TITLE, SITE_URL, TURNSTILE_SITE_KEY } from '@/config/site';
 import { TURNSTILE_SCRIPT } from '@/lib/turnstile';
 import { body, display, mono } from './fonts';
 import './globals.css';
@@ -48,6 +48,13 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     >
       <head>
         <ThemeScript />
+        {API_URL ? (
+          <>
+            {/* fetch y hls.js piden sin credenciales; <audio> abre otra conexión con ellas */}
+            <link rel="preconnect" href={API_URL} crossOrigin="anonymous" />
+            <link rel="preconnect" href={API_URL} />
+          </>
+        ) : null}
       </head>
       <body>
         {children}

@@ -44,24 +44,89 @@ export function hasVideo(c: VideoCaps): boolean {
   return c.mse || c.native;
 }
 
+type StartLevel = Pick<Level, 'height'> & Partial<Pick<Level, 'bitrate' | 'averageBitrate'>>;
+
+/**
+ * Parte del ancho de banda medido que se da por usable al elegir el arranque: el mismo margen con el que hls.js
+ * decide subir de calidad (`abrBandWidthUpFactor`), para que no baje nada más empezar.
+ */
+export const START_BANDWIDTH_FACTOR = 0.7;
+
 /**
  * Nivel de arranque para un panel de `targetHeight` píxeles físicos: el más alto que no lo supera,
- * o el más bajo si todos lo superan. -1 deja la elección a hls.js (la primera variante del master).
+ * o el más bajo si todos lo superan. Con `bandwidthBps` (lo medido antes en esta pestaña o lo que estima el
+ * navegador) tampoco pasa del 70 % de ese ancho de banda. -1 deja la elección a hls.js (la primera variante del master).
  * `levels` viene ordenado por hls.js de menor a mayor.
  */
-export function pickStartLevel(levels: readonly Pick<Level, 'height'>[], targetHeight: number | null): number {
-  if (!targetHeight || targetHeight <= 0 || levels.length === 0) return -1;
+export function pickStartLevel(levels: readonly StartLevel[], targetHeight: number | null, bandwidthBps: number | null = null): number {
+  if (levels.length === 0) return -1;
+  const bySize = targetHeight !== null && targetHeight > 0;
+  const byRate = bandwidthBps !== null && bandwidthBps > 0;
+  if (!bySize && !byRate) return -1;
+  const usable = byRate ? bandwidthBps * START_BANDWIDTH_FACTOR : Infinity;
+  const rate = (l: StartLevel) => l.averageBitrate || l.bitrate || 0;
   let best = -1;
   let lowest = 0;
   for (let i = 0; i < levels.length; i++) {
-    const h = levels[i]?.height ?? 0;
-    if (h <= targetHeight && (best < 0 || h >= (levels[best]?.height ?? 0))) best = i;
-    if (h < (levels[lowest]?.height ?? 0)) lowest = i;
+    const l = levels[i] as StartLevel;
+    const h = l.height ?? 0;
+    const fits = (!bySize || h <= (targetHeight as number)) && rate(l) <= usable;
+    if (fits && (best < 0 || h >= (levels[best]?.height ?? 0))) best = i;
+    if (h < (levels[lowest]?.height ?? 0) || (h === (levels[lowest]?.height ?? 0) && rate(l) < rate(levels[lowest] as StartLevel))) lowest = i;
   }
   return best >= 0 ? best : lowest;
 }
 
-/** Configuración de partida de hls.js (T7 la ajusta con medidas). */
+/** Ancho de banda que hls.js midió en esta pestaña: el siguiente video arranca con él (calidad y ABR). */
+export const BANDWIDTH_KEY = 'setube_bwe';
+const BANDWIDTH_MIN = 100_000;
+const BANDWIDTH_MAX = 200_000_000;
+
+function session(): Storage | null {
+  try {
+    return typeof window !== 'undefined' ? window.sessionStorage : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Lo medido antes en esta pestaña, en bits por segundo; null si no hay nada válido. */
+export function loadBandwidth(): number | null {
+  try {
+    const raw = session()?.getItem(BANDWIDTH_KEY);
+    const v = raw ? Number(raw) : Number.NaN;
+    return Number.isFinite(v) && v >= BANDWIDTH_MIN ? Math.min(v, BANDWIDTH_MAX) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Estimación de partida para la calidad del primer video de la pestaña: lo medido por hls.js o, si no hay nada,
+ * `navigator.connection.downlink` (Chrome y Android; Mbit/s, con tope de 10). Sin ninguna de las dos, null.
+ */
+export function startBandwidth(): number | null {
+  const measured = loadBandwidth();
+  if (measured !== null) return measured;
+  try {
+    const c = (globalThis.navigator as (Navigator & { connection?: { downlink?: unknown } }) | undefined)?.connection;
+    const mbps = typeof c?.downlink === 'number' ? c.downlink : Number.NaN;
+    return Number.isFinite(mbps) && mbps > 0 ? Math.max(BANDWIDTH_MIN, mbps * 1e6) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function saveBandwidth(bps: number): void {
+  if (!Number.isFinite(bps) || bps < BANDWIDTH_MIN) return;
+  try {
+    session()?.setItem(BANDWIDTH_KEY, String(Math.round(Math.min(bps, BANDWIDTH_MAX))));
+  } catch {
+    // modo privado o almacenamiento lleno: el siguiente video arranca sin la medida
+  }
+}
+
+/** Configuración fija de hls.js; el ancho de banda de partida se añade en cada video (`loadBandwidth`). */
 export const HLS_CONFIG: Partial<HlsConfig> = {
   // fMP4 no necesita transmux: sin worker no hace falta `worker-src blob:` en la CSP
   enableWorker: false,
@@ -141,6 +206,8 @@ export function openVideoSource(video: HTMLVideoElement, caps: VideoCaps, opts: 
   let kind: VideoSource['kind'] = null;
   let hls: InstanceType<HlsCtor> | null = null;
   let onNativeError: (() => void) | null = null;
+  // guarda la última medida de hls.js al cerrar (cambio de pista, de modo o cierre del reproductor)
+  let saveEstimate: (() => void) | null = null;
 
   // siempre asíncrono: quien abre la fuente aún no tiene el objeto devuelto
   const fail = (reason: VideoFailReason) => {
@@ -161,20 +228,39 @@ export function openVideoSource(video: HTMLVideoElement, caps: VideoCaps, opts: 
 
   const startHls = (Hls: HlsCtor): boolean => {
     kind = 'hls';
-    const h = new Hls({ ...HLS_CONFIG, startPosition: opts.startPosition > 0 ? opts.startPosition : -1 });
+    // Lo medido en el video anterior de esta pestaña: sin ello hls.js parte de 500 kbit/s y tarda en subir
+    const measured = loadBandwidth();
+    const h = new Hls({
+      ...HLS_CONFIG,
+      ...(measured !== null ? { abrEwmaDefaultEstimate: measured } : {}),
+      startPosition: opts.startPosition > 0 ? opts.startPosition : -1,
+    });
     hls = h;
     const { Events, ErrorTypes, ErrorDetails } = Hls;
     let netRetried = false;
     let lastMediaRecovery = 0;
     let swapped = false;
+    let savedAt = 0;
+    let sampled = false;
+    // Solo tras algún fragmento cargado: antes, bandwidthEstimate es el valor por defecto y no una medida
+    saveEstimate = () => {
+      if (sampled) saveBandwidth(h.bandwidthEstimate);
+    };
 
     h.on(Events.MANIFEST_PARSED, () => {
-      const level = pickStartLevel(h.levels, opts.targetHeight);
+      // la calidad de arranque también tiene en cuenta la estimación del navegador; el ABR, solo lo medido
+      const level = pickStartLevel(h.levels, opts.targetHeight, measured ?? startBandwidth());
       if (level >= 0) h.startLevel = level;
       h.startLoad(opts.startPosition > 0 ? opts.startPosition : -1);
     });
     h.on(Events.FRAG_BUFFERED, () => {
       netRetried = false;
+      sampled = true;
+      const now = Date.now();
+      if (now - savedAt > 2000) {
+        savedAt = now;
+        saveEstimate?.();
+      }
     });
     h.on(Events.ERROR, (_e, data) => {
       if (!data.fatal || destroyed) return;
@@ -261,6 +347,7 @@ export function openVideoSource(video: HTMLVideoElement, caps: VideoCaps, opts: 
       destroyed = true;
       if (onNativeError) video.removeEventListener('error', onNativeError);
       if (hls) {
+        saveEstimate?.();
         hls.destroy();
         hls = null;
       }

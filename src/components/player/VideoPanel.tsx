@@ -86,6 +86,26 @@ export function VideoPanel({ player, videoRef, frameRef, onFullscreen }: VideoPa
   const clickTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const idleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [idle, setIdle] = useState(false);
+  // el panel se cerró con el foco dentro: al quedar inerte el foco caería en <body>
+  const restoreFocus = useRef(false);
+  // el toque que despierta los controles ocultos no pausa el video
+  const swallowClick = useRef(false);
+
+  // Se mira al cambiar el estado del motor, antes de que React marque el panel como inerte y el foco se pierda
+  useEffect(() => {
+    let wasOpen = false;
+    const check = () => {
+      const st = player.getState();
+      const nowOpen = st.track !== null && st.mode === 'video';
+      if (wasOpen && !nowOpen) {
+        const el = panelRef.current;
+        restoreFocus.current = el !== null && el.contains(document.activeElement);
+      }
+      wasOpen = nowOpen;
+    };
+    check();
+    return player.subscribe(check);
+  }, [player]);
 
   // alto del panel para que en móvil el contenido y los avisos no queden debajo
   useEffect(() => {
@@ -105,12 +125,36 @@ export function VideoPanel({ player, videoRef, frameRef, onFullscreen }: VideoPa
     };
   }, [open]);
 
-  // al volver a solo audio (o cerrar) se sale de pantalla completa y de PiP
+  // al volver a solo audio (o cerrar) se sale de pantalla completa y de PiP; si el foco estaba dentro, pasa al
+  // botón «Ver video» de la barra o, si la pista ya no tiene video, al de reproducir
   useEffect(() => {
     if (open) return;
     exitFullscreenIfInside(frameRef.current);
     exitPictureInPicture(videoRef.current);
+    if (!restoreFocus.current) return;
+    restoreFocus.current = false;
+    const a = document.activeElement;
+    if (a && a !== document.body && !panelRef.current?.contains(a)) return;
+    const target =
+      document.querySelector<HTMLElement>('[data-focus-return="video"]') ?? document.querySelector<HTMLElement>('[data-focus-return="play"]');
+    target?.focus();
   }, [open, frameRef, videoRef]);
+
+  // al entrar en pantalla completa los controles se ven y empieza la cuenta; al salir no queda nada pendiente
+  useEffect(
+    () =>
+      subscribeFullscreen(() => {
+        if (idleTimer.current) clearTimeout(idleTimer.current);
+        idleTimer.current = null;
+        setIdle(false);
+        if (!isFrameFullscreen()) return;
+        idleTimer.current = setTimeout(() => {
+          idleTimer.current = null;
+          setIdle(true);
+        }, IDLE_MS);
+      }),
+    [],
+  );
 
   useEffect(
     () => () => {
@@ -131,6 +175,10 @@ export function VideoPanel({ player, videoRef, frameRef, onFullscreen }: VideoPa
   };
 
   const onVideoClick = () => {
+    if (swallowClick.current) {
+      swallowClick.current = false;
+      return;
+    }
     if (clickTimer.current) clearTimeout(clickTimer.current);
     // el doble clic (pantalla completa) cancela la pausa del primer clic
     clickTimer.current = setTimeout(() => {
@@ -156,6 +204,13 @@ export function VideoPanel({ player, videoRef, frameRef, onFullscreen }: VideoPa
 
   const running = s.status === 'playing' || busy;
   const title = track?.title ?? '';
+  const hidden = fs && idle && running;
+
+  // con los controles ocultos (también en táctil, sin pointermove) el primer toque solo los muestra
+  const onFramePointerDown = () => {
+    swallowClick.current = hidden;
+    wake();
+  };
 
   return (
     <div
@@ -172,11 +227,12 @@ export function VideoPanel({ player, videoRef, frameRef, onFullscreen }: VideoPa
         data-video-frame=""
         data-theme="dark"
         data-fs={fs}
-        data-idle={fs && idle && running}
+        data-idle={hidden}
         tabIndex={-1}
         className="video-frame"
         onKeyDown={onKey}
         onPointerMove={fs ? wake : undefined}
+        onPointerDownCapture={fs ? onFramePointerDown : undefined}
       >
         <video
           ref={videoRef}
