@@ -98,14 +98,16 @@ test('navegación por teclado: chips, Convertir y acciones de fila', async ({ pa
     const label = await page.evaluate(() => {
       const el = document.activeElement as HTMLElement | null;
       if (!el) return '';
-      if (el instanceof HTMLInputElement && el.type === 'radio') return `radio:${el.name}`;
+      // los name e id llevan el prefijo de useId (`«id»-kind`): se compara solo el sufijo
+      if (el instanceof HTMLInputElement && el.type === 'radio') return `radio:${el.name.split('-').pop()}`;
+      if (el instanceof HTMLSelectElement) return `select:${el.id.split('-').pop()}`;
       return el.getAttribute('aria-label') ?? el.textContent?.trim() ?? '';
     });
     reached.add(label);
   }
   expect(reached).toContain('radio:kind');
   expect(reached).toContain('radio:format');
-  expect(reached).toContain('radio:quality');
+  expect(reached).toContain('select:quality');
   expect([...reached].some((l) => l.startsWith('Convertir'))).toBe(true);
   expect(reached).toContain('Descargar');
   expect(reached).toContain('Quitar');

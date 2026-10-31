@@ -103,7 +103,7 @@ Los límites (videos por tanda, duración máxima, calidades) y si se puede escu
 
 ```bash
 NEXT_PUBLIC_API_URL=http://127.0.0.1:4100 npm run build
-cp -r .next/static .next/standalone/.next/static
+cp -r .next/static .next/standalone/.next/
 PORT=3100 HOSTNAME=127.0.0.1 node .next/standalone/server.js   # en otra terminal
 E2E_BASE_URL=http://127.0.0.1:3100 npx playwright test e2e/recent-searches.spec.ts
 ```
