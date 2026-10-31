@@ -93,15 +93,18 @@ Los límites (videos por tanda, duración máxima, calidades) y si se puede escu
 | --- | --- |
 | `npm run dev` | Servidor de desarrollo en el puerto 3000 |
 | `npm run build` | Build de producción |
-| `npm run start` | Sirve el build con `next start` |
+| `npm run start` | `next start`; con `output: 'standalone'` el build se sirve con `node .next/standalone/server.js` (ver abajo) |
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm run lint` | ESLint |
 | `npm test` | Pruebas unitarias con Vitest |
 | `npm run e2e` | Pruebas de Playwright contra el stack de Docker Compose |
 
-`e2e/recent-searches.spec.ts` simula la API con `context.route` de Playwright (`/api/config`, `/api/search` y las miniaturas de `i.ytimg.com`), así que no necesita el stack: basta con la web servida. Por ejemplo, con `npm run build` y `npm run start -- -p 3100` en otra terminal:
+`e2e/recent-searches.spec.ts` simula la API con `context.route` de Playwright (`/api/config`, `/api/search` y las miniaturas de `i.ytimg.com`), así que no necesita el stack: basta con la web servida. Con `output: 'standalone'`, `next start` no sirve el build: se usa el `server.js` de la salida standalone, con `.next/static` copiado al lado, como en el `Dockerfile`:
 
 ```bash
+NEXT_PUBLIC_API_URL=http://127.0.0.1:4100 npm run build
+cp -r .next/static .next/standalone/.next/static
+PORT=3100 HOSTNAME=127.0.0.1 node .next/standalone/server.js   # en otra terminal
 E2E_BASE_URL=http://127.0.0.1:3100 npx playwright test e2e/recent-searches.spec.ts
 ```
 
@@ -112,7 +115,7 @@ NEXT_PUBLIC_API_URL=http://127.0.0.1:4100 npx next dev --webpack -p 3100 -H 127.
 E2E_BASE_URL=http://127.0.0.1:3100 npx playwright test e2e/video-player.spec.ts
 ```
 
-`NEXT_PUBLIC_API_URL` puede apuntar a un puerto sin nada escuchando: el spec responde todas las rutas `/api/`.
+`NEXT_PUBLIC_API_URL` puede apuntar a un puerto sin nada escuchando: el spec responde todas las rutas `/api/`. También pasa contra el build de producción servido con `server.js`, como el de arriba.
 
 `e2e/smoke.spec.ts` sí necesita la API real.
 

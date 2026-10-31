@@ -521,6 +521,23 @@ test('móvil: el panel no tapa la barra ni la cola, también en horizontal', asy
   await expect.poll(async () => (await rectOf(page, '.video-panel')).width).toBeLessThanOrEqual(landscape.width * 0.5);
   const side = await check();
   expect(side.p.right).toBeGreaterThan(side.vp.width * 0.9);
+  // con el scroll arriba, el panel empieza por debajo de la cabecera: el botón del tema se puede tocar entero
+  await page.evaluate(() => window.scrollTo(0, 0));
+  const header = await rectOf(page, 'header');
+  expect((await rectOf(page, '.video-panel')).top).toBeGreaterThanOrEqual(header.bottom);
+  const themeCovered = await page.getByRole('button', { name: 'Tema oscuro' }).evaluate((btn) => {
+    const r = btn.getBoundingClientRect();
+    const points = [
+      [r.left + r.width / 2, r.top + r.height / 2],
+      [r.left + 2, r.bottom - 2],
+      [r.right - 2, r.bottom - 2],
+    ];
+    return points.some(([x, y]) => {
+      const hit = document.elementFromPoint(x as number, y as number);
+      return !(hit && btn.contains(hit));
+    });
+  });
+  expect(themeCovered).toBe(false);
   expect((await videoState(page)).paused).toBe(false);
   expect(errors).toEqual([]);
 });

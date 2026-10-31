@@ -39,4 +39,35 @@ ffmpeg -hide_banner -loglevel error -y \
 
 Los playlists salen del mismo código que la API (`api-setube`): `parseMp4Index` de `src/lib/preview/mp4-index.ts` sobre cada archivo y `mediaPlaylist` y `masterPlaylist` de `src/lib/preview/hls.ts` con `sid = 'SID'`, `BANDWIDTH` calculado con el tamaño y la duración de cada archivo, `RESOLUTION` 640x360 y 1280x720, `FRAME-RATE` 30 y los códecs `avc1.4d401e`, `avc1.4d401f` y `mp4a.40.2`. Si cambian los archivos, hay que regenerar los playlists: los `BYTERANGE` dependen de los bytes exactos. Si cambia el formato de los playlists en la API, conviene regenerarlos también.
 
+Con los dos repos en la misma carpeta (`setube` y `api-setube` uno al lado del otro), guarda este script en `api-setube` como `gen-playlists.mts` (no lo subas) y ejecútalo desde ahí con `npx tsx gen-playlists.mts`:
+
+```ts
+import { readFileSync, writeFileSync } from 'node:fs';
+import { parseMp4Index } from './src/lib/preview/mp4-index.ts';
+import { masterPlaylist, mediaPlaylist } from './src/lib/preview/hls.ts';
+
+const DIR = '../setube/e2e/fixtures/video';
+const files: Record<string, string> = { '134': '134.mp4', '136': '136.mp4', '140': '140.m4a' };
+const bps: Record<string, number> = {};
+
+for (const [formatId, file] of Object.entries(files)) {
+  const buf = readFileSync(`${DIR}/${file}`);
+  const r = parseMp4Index(new Uint8Array(buf), { totalSize: buf.length });
+  if (r.kind !== 'ok') throw new Error(`${file}: ${JSON.stringify(r)}`);
+  writeFileSync(`${DIR}/${formatId}.m3u8`, mediaPlaylist({ formatId, ...r.index }, 'SID'));
+  const seconds = r.index.segments.reduce((a, s) => a + s.duration, 0) / r.index.timescale;
+  bps[formatId] = Math.round((buf.length * 8) / seconds);
+}
+
+const master = masterPlaylist({
+  variants: [
+    { formatId: '134', videoBps: bps['134']!, width: 640, height: 360, fps: 30, codec: 'avc1.4d401e' },
+    { formatId: '136', videoBps: bps['136']!, width: 1280, height: 720, fps: 30, codec: 'avc1.4d401f' },
+  ],
+  audio: { formatId: '140', bps: bps['140']!, codec: 'mp4a.40.2' },
+  sid: 'SID',
+});
+writeFileSync(`${DIR}/master.m3u8`, master);
+```
+
 El spec lee los rangos del init y de los segmentos de los propios playlists, y necesita que cada variante de video tenga al menos dos segmentos.
